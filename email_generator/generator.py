@@ -131,4 +131,6 @@ class EmailDatasetGenerator:
         df.to_csv(filename, index=False, encoding='utf-8')
         return df
 
-
+    def preview_dataset(self, dataset, num_examples=10):
+        for i, email in enumerate(dataset[:num_examples]):
+            print(f"{i+1}. [{email['label'].upper()}] {email['sender']} - {email['subject']}")
