@@ -44,3 +44,11 @@ class EmailDatasetGenerator:
             print(f"Missing key in template: {e}")
             subject = subject_template
             content = content_template
+
+        return {
+            'subject': subject,
+            'sender': sender,
+            'content': content,
+            'label': 'ham',
+            'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown'
+        }
