@@ -20,5 +20,19 @@ class EmailDatasetGenerator:
         subject_template, content_template = random.choice(self.ham_templates[template_category])
 
         template_vars = {
- 
+            'device': f"{self.faker.user_agent()}",
+            'date': self.faker.date_between(start_date='30d', end_date='today').strftime('%B %d, %Y'),
+            'time': self.faker.time(pattern="%I:%M %p"),
+            'company': self.faker.company(),
+            'position': self.faker.job(),
+            'course': self.faker.catch_phrase(),
+            'field': self.faker.bs().split()[-1],
+            'hours': random.randint(5, 40),
+            'points': random.randint(50, 500),
+            'amount': random.randint(10, 999),
+            'transactions': random.randint(3, 20),
+            'percent': random.randint(60, 99),
+            'order_id': random.randint(100000, 999999),
+            'last4': random.randint(1000, 9999),
+            'location': f"{self.faker.city()}, {self.faker.country()}"
         }
