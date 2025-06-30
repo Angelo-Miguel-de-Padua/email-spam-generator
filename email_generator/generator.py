@@ -52,3 +52,7 @@ class EmailDatasetGenerator:
             'label': 'ham',
             'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown'
         }
+    
+    def generate_spam_email(self):
+        category = random.choice(list(self.spam_senders.keys()))
+        use_spoofed_gender = random.random() < 0.5
