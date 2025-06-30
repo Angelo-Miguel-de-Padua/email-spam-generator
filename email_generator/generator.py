@@ -22,7 +22,7 @@ class EmailDatasetGenerator:
 
         template_vars = {
             'device': f"{self.faker.user_agent()}",
-            'date': self.faker.date_between(start_date='30d', end_date='today').strftime('%B %d, %Y'),
+            'date': self.faker.date_between(start_date=datetime.today() - timedelta(days=30), end_date=datetime.today()).strftime('%B %d, %Y'),
             'time': self.faker.time(pattern="%I:%M %p"),
             'company': self.faker.company(),
             'position': self.faker.job(),
