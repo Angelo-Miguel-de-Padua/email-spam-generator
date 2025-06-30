@@ -1,6 +1,7 @@
 import random
 from faker import Faker
 from datetime import datetime, timedelta
+from .spam_utils import add_spam_characteristics 
 from .templates import ham_senders, spam_senders, ham_templates, spam_templates, variables
 
 class EmailDatasetGenerator:
@@ -52,3 +53,62 @@ class EmailDatasetGenerator:
             'label': 'ham',
             'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown'
         }
+    
+    def generate_spam_email(self):
+        category = random.choice(list(self.spam_senders.keys()))
+        use_spoofed_gender = random.random() < 0.5
+
+        if use_spoofed_gender:
+            tlds = ['.click', '.top', '.biz', '.site', '.online', '.info']
+            keywords = ['login', 'update', 'account', 'secure', 'verify', 'alert', 'billing', 'support']
+
+            word1 = random.choice(keywords)
+            word2 = random.choice(keywords)
+            tld = random.choice(tlds)
+
+            spoofed_domain = f"{word1}-{word2}{tld}"
+            sender = f"{self.faker.user_name()}@{spoofed_domain}"
+            is_spoofed = True
+        else:
+            sender = random.choice(self.spam_senders[category])
+            is_spoofed = False
+
+        template_category = random.choice(list(self.spam_templates.keys()))
+        subject_template, content_template = random.choice(self.spam_templates[template_category])
+
+        template_vars = {
+            'location': f"{self.faker.city()}, {self.faker.country()}",
+            'num': random.randint(3, 50),
+            'hours': random.randint(6, 48),
+            'amount': self.faker.random_int(min=500, max=50000),
+            'price': self.faker.random_int(min=10000, max=1000000),
+            'percent': self.faker.random_int(min=1000, max=10000),
+            'daily_rate': self.faker.random_int(min=200, max=2000),
+            'hourly': self.faker.random_int(min=25, max=200),
+            'fee': round(random.uniform(2.99, 19.99), 2),
+            'days': self.faker.random_int(min=3, max=30),
+            'country': self.faker.country(),
+            'name': self.faker.name()
+        }
+    
+        try:
+            subject = subject_template.format(**template_vars)
+            content = content_template.format(**template_vars)
+        except KeyError:
+            subject = subject_template
+            content = content_template
+        
+        if random.random() < 0.5:
+            subject = add_spam_characteristics(subject)
+            content = add_spam_characteristics(content)
+
+        return {
+            'subject': subject,
+            'sender': sender,
+            'content': content,
+            'label': 'spam',
+            'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown',
+            'is_spoofed': is_spoofed
+        }
+
+
