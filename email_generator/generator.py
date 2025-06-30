@@ -134,3 +134,9 @@ class EmailDatasetGenerator:
     def preview_dataset(self, dataset, num_examples=10):
         for i, email in enumerate(dataset[:num_examples]):
             print(f"{i+1}. [{email['label'].upper()}] {email['sender']} - {email['subject']}")
+    
+    def analyze_dataset(self, dataset):
+        df = pd.DataFrame(dataset)
+        print(df['label'].value_counts())
+        print(df['sender_domain'].value_counts().head())
+        return df
