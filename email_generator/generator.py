@@ -1,6 +1,7 @@
 import random
 from faker import Faker
 from datetime import datetime, timedelta
+from .spam_utils import add_spam_characteristics 
 from .templates import ham_senders, spam_senders, ham_templates, spam_templates, variables
 
 class EmailDatasetGenerator:
@@ -96,4 +97,9 @@ class EmailDatasetGenerator:
         except KeyError:
             subject = subject_template
             content = content_template
+        
+        if random.random() < 0.5:
+            subject = add_spam_characteristics(subject)
+            content = add_spam_characteristics(content)
+
 
