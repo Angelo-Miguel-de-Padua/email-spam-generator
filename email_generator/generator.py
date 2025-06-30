@@ -110,5 +110,10 @@ class EmailDatasetGenerator:
             'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown',
             'is_spoofed': is_spoofed
         }
+    
+    def generate_dataset(self, total_emails=1000, spam_ratio=0.5):
+        dataset = []
+        num_spam = int(total_emails * spam_ratio)
+        num_ham = total_emails - num_spam
 
 
