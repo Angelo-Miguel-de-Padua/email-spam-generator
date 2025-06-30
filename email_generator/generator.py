@@ -74,3 +74,18 @@ class EmailDatasetGenerator:
 
         template_category = random.choice(list(self.spam_templates.keys()))
         subject_template, category_template = random.choice(self.spam_templates[template_category])
+
+        template_vars = {
+            'location': f"{self.faker.city()}, {self.faker.country()}",
+            'num': random.randint(3, 50),
+            'hours': random.randint(6, 48),
+            'amount': self.faker.random_int(min=500, max=50000),
+            'price': self.faker.random_int(min=10000, max=1000000),
+            'percent': self.faker.random_int(min=1000, max=10000),
+            'daily_rate': self.faker.random_int(min=200, max=2000),
+            'hourly': self.faker.random_int(min=25, max=200),
+            'fee': round(random.uniform(2.99, 19.99), 2),
+            'days': self.faker.random_int(min=3, max=30),
+            'country': self.faker.country(),
+            'name': self.faker.name()
+        }
