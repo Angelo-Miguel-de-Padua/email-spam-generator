@@ -116,4 +116,9 @@ class EmailDatasetGenerator:
         num_spam = int(total_emails * spam_ratio)
         num_ham = total_emails - num_spam
 
+        for _ in range(num_ham):
+            dataset.append(self.generate_ham_email())
+        
+        
+
 
