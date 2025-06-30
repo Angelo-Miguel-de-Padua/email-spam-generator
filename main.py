@@ -12,3 +12,6 @@ def create_comprehensive_dataset():
 
     ham_heavy = generator.generate_dataset(500, ham_ratio=0.8)
     generator.save_to_csv(ham_heavy, 'ham_heavy_dataset.csv')
+
+if __name__ == "__main__":
+    create_comprehensive_dataset()
