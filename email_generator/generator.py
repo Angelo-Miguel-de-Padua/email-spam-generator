@@ -102,4 +102,13 @@ class EmailDatasetGenerator:
             subject = add_spam_characteristics(subject)
             content = add_spam_characteristics(content)
 
+        return {
+            'subject': subject,
+            'sender': sender,
+            'content': content,
+            'label': 'spam',
+            'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown',
+            'is_spoofed': is_spoofed
+        }
+
 
