@@ -36,3 +36,11 @@ class EmailDatasetGenerator:
             'last4': random.randint(1000, 9999),
             'location': f"{self.faker.city()}, {self.faker.country()}"
         }
+
+        try:
+            subject = subject_template.format(**template_vars)
+            content = content_template.format(**template_vars)
+        except KeyError as e:
+            print(f"Missing key in template: {e}")
+            subject = subject_template
+            content = content_template
