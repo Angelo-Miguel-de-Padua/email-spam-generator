@@ -10,7 +10,7 @@ def create_comprehensive_dataset():
     spam_heavy = generator.generate_dataset(500, spam_ratio=0.8)
     generator.save_to_csv(spam_heavy, 'spam_heavy_dataset.csv')
 
-    ham_heavy = generator.generate_dataset(500, ham_ratio=0.8)
+    ham_heavy = generator.generate_dataset(500, spam_ratio=0.2)
     generator.save_to_csv(ham_heavy, 'ham_heavy_dataset.csv')
 
 if __name__ == "__main__":
