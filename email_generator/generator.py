@@ -1,4 +1,5 @@
 import random
+import pandas as pd
 from faker import Faker
 from datetime import datetime, timedelta
 from .spam_utils import add_spam_characteristics 
@@ -125,5 +126,9 @@ class EmailDatasetGenerator:
         random.shuffle(dataset)
         return dataset
 
+    def save_to_csv(self, dataset, filename='synthetic_email_dataset.csv'):
+        df = pd.DataFrame(dataset)
+        df.to_csv(filename, index=False, encoding='utf-8')
+        return df
 
 
