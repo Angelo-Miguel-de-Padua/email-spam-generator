@@ -71,3 +71,6 @@ class EmailDatasetGenerator:
         else:
             sender = random.choice(self.spam_senders[category])
             is_spoofed = False
+
+        template_category = random.choice(list(self.spam_templates.keys()))
+        subject_template, category_template = random.choice(self.spam_templates[template_category])
