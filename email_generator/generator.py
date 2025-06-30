@@ -3,7 +3,7 @@ import pandas as pd
 from faker import Faker
 from datetime import datetime, timedelta
 from .spam_utils import add_spam_characteristics 
-from .templates import ham_senders, spam_senders, ham_templates, spam_templates, variables
+from .templates import ham_senders, spam_senders, ham_templates, spam_templates
 
 class EmailDatasetGenerator:
     def __init__(self):
@@ -11,7 +11,6 @@ class EmailDatasetGenerator:
         self.spam_senders = spam_senders
         self.ham_templates = ham_templates
         self.spam_templates = spam_templates
-        self.variables = variables
         self.faker = Faker()
     
     def generate_ham_email(self):
@@ -23,7 +22,7 @@ class EmailDatasetGenerator:
 
         template_vars = {
             'device': f"{self.faker.user_agent()}",
-            'date': self.faker.date_between(start_date='30d', end_date='today').strftime('%B %d, %Y'),
+            'date': self.faker.date_between(start_date=datetime.today() - timedelta(days=30), end_date=datetime.today()).strftime('%B %d, %Y'),
             'time': self.faker.time(pattern="%I:%M %p"),
             'company': self.faker.company(),
             'position': self.faker.job(),
