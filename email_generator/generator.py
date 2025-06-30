@@ -119,6 +119,10 @@ class EmailDatasetGenerator:
         for _ in range(num_ham):
             dataset.append(self.generate_ham_email())
         
+        for _ in range (num_spam):
+            dataset.append(self.generate_spam_email())
         
+        
+
 
 
