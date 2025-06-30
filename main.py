@@ -6,3 +6,9 @@ def create_comprehensive_dataset():
     generator.preview_dataset(dataset)
     df = generator.save_to_csv(dataset, 'synthetic_email_dataset.csv')
     generator.analyze_dataset(dataset)
+
+    spam_heavy = generator.generate_dataset(500, spam_ratio=0.8)
+    generator.save_to_csv(spam_heavy, 'spam_heavy_dataset.csv')
+
+    ham_heavy = generator.generate_dataset(500, ham_ratio=0.8)
+    generator.save_to_csv(ham_heavy, 'ham_heavy_dataset.csv')
