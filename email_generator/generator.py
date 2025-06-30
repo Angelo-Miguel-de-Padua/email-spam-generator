@@ -122,7 +122,8 @@ class EmailDatasetGenerator:
         for _ in range (num_spam):
             dataset.append(self.generate_spam_email())
         
-        
+        random.shuffle(dataset)
+        return dataset
 
 
 
