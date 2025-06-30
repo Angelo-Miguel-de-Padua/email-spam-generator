@@ -73,7 +73,7 @@ class EmailDatasetGenerator:
             is_spoofed = False
 
         template_category = random.choice(list(self.spam_templates.keys()))
-        subject_template, category_template = random.choice(self.spam_templates[template_category])
+        subject_template, content_template = random.choice(self.spam_templates[template_category])
 
         template_vars = {
             'location': f"{self.faker.city()}, {self.faker.country()}",
@@ -89,3 +89,11 @@ class EmailDatasetGenerator:
             'country': self.faker.country(),
             'name': self.faker.name()
         }
+    
+        try:
+            subject = subject_template.format(**template_vars)
+            content = content_template.format(**template_vars)
+        except KeyError:
+            subject = subject_template
+            content = content_template
+
