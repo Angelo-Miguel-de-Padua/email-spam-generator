@@ -56,3 +56,18 @@ class EmailDatasetGenerator:
     def generate_spam_email(self):
         category = random.choice(list(self.spam_senders.keys()))
         use_spoofed_gender = random.random() < 0.5
+
+        if use_spoofed_gender:
+            tlds = ['.click', '.top', '.biz', '.site', '.online', '.info']
+            keywords = ['login', 'update', 'account', 'secure', 'verify', 'alert', 'billing', 'support']
+
+            word1 = random.choice(keywords)
+            word2 = random.choice(keywords)
+            tld = random.choice(tlds)
+
+            spoofed_domain = f"{word1}-{word2}{tld}"
+            sender = f"{self.faker.user_name()}@{spoofed_domain}"
+            is_spoofed = True
+        else:
+            sender = random.choice(self.spam_senders[category])
+            is_spoofed = False
