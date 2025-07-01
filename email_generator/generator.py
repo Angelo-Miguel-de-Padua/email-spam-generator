@@ -13,6 +13,10 @@ class EmailDatasetGenerator:
         self.spam_templates = spam_templates
         self.faker = Faker()
     
+    def load_tranco_domains(csv_path, limit=500):
+        df = pd.read_csv(csv_path, header=None, names=["rank", "domain"])
+        return df["domain"].head(limit).tolist()
+    
     def generate_ham_email(self):
         category = random.choice(list(self.ham_senders.keys()))
         sender = random.choice(self.ham_senders[category])
