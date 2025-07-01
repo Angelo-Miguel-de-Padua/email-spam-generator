@@ -13,3 +13,8 @@ def extract_text(soup, max_paragraphs=3) -> str:
     h1 = soup.find("h1")
     if h1:
         parts.append(h1.get_text(strip=True))
+
+    for p in soup.find_all("p")[:max_paragraphs]:
+        text = p.get_text(strip=True)
+        if len(text) > 30 and "cookie" not in text.lower():
+            parts.append(text)
