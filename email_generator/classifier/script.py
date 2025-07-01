@@ -42,4 +42,12 @@ def run_scraper():
         result = scraper(domain)
         save_result(result, is_first=is_first_result)
         is_first_result = False
-        print(...)
+
+        print(f"[{i}] {domain} -> {result['category']} "
+              f"(confidence: {result.get('confidence')}, error: {result.get('error')})")
+
+    with open(output_file, "a", encoding="utf-8") as f:
+        f.write("\n]")
+
+if __name__ == "__main___":
+    run_scraper()
