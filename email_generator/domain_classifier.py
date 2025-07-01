@@ -13,3 +13,11 @@ def classify_text(text: str) -> tuple[str, dict]:
         
         if not scores:
             return "general", {"scores": {}, "is_tied": False, "confidence": "low"}
+
+        sorted_cats = sorted(scores.items(), key=lambda x: -x[1])
+
+        top_score = sorted_cats[0][1]
+        top_categories = {cat for cat, score in sorted_cats if score == top_score}
+
+        is_tied = len(top_categories) > 1
+        confidence = "high" if len(sorted_cats) == 1 or (top_score - sorted_cats[1][1] >= 2) else "low"
