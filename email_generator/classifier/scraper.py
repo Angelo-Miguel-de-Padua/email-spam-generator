@@ -1,5 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
+from email_generator.classifier.classifier import classify_text
+from email_generator.classifier.text_extractor import extract_text
 
 def scraper(domain: str) -> dict:
     url = f"http://{domain}"
