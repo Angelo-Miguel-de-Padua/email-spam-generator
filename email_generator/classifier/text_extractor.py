@@ -9,3 +9,7 @@ def extract_text(soup, max_paragraphs=3) -> str:
     meta = soup.find("meta", attrs={"name": "description"}) 
     if meta and meta.get("content"):
         parts.append(meta["content"])
+    
+    h1 = soup.find("h1")
+    if h1:
+        parts.append(h1.get_text(strip=True))
