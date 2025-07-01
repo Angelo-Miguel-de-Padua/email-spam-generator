@@ -17,3 +17,9 @@ def load_previous_results() -> dict:
                 return {}
     
     return {}
+
+def save_result(result: dict, is_first: bool = False):
+    with open(output_file, "a", encoding="utf-8") as f:
+        if not is_first:
+            f.write(",\n")
+        f.write(json.dumps(result, ensure_ascii=False))
