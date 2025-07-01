@@ -22,4 +22,11 @@ def scraper(domain: str) -> dict:
             "is_tied": info["is_tied"],
             "scores": info["scores"]
         }
+    
+    except Exception as e:
+        return {
+            "domain": domain,
+            "category": "error",
+            "error": str(e)
+        }
 
