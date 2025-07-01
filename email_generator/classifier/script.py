@@ -23,3 +23,8 @@ def save_result(result: dict, is_first: bool = False):
         if not is_first:
             f.write(",\n")
         f.write(json.dumps(result, ensure_ascii=False))
+
+def run_scraper():
+    domains = load_tranco_domains(csv_source, limit=LIMIT)
+    previous = load_previous_results()
+    processed = set(previous.keys())
