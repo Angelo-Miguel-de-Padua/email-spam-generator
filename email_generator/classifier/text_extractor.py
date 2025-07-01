@@ -5,3 +5,7 @@ def extract_text(soup, max_paragraphs=3) -> str:
 
     if soup.title:
         parts.append(soup.title.get_text(strip=True))
+
+    meta = soup.find("meta", attrs={"name": "description"}) 
+    if meta and meta.get("content"):
+        parts.append(meta["content"])
