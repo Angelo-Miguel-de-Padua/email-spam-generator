@@ -15,31 +15,51 @@ def random_user_agent() -> str:
     return random.choice(user_agents)
 
 def scraper(domain: str) -> dict:
-    url = f"http://{domain}"
+    for protocol in ["https", "http"]:
+        url = f"{protocol}://{domain}"
 
-    try:
-        response = requests.get(url, timeout=5, headers={"User-Agent": random_user_agent()})
-        soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            response = requests.get(url, timeout=5, headers={"User-Agent": random_user_agent()})
 
-        base_text = extract_text(soup, max_paragraphs=1)
-        category, info = classify_text(base_text)
+            if response.status_code in [403, 429]:
+                return {
+                    "domain": domain,
+                    "category": "blocked",
+                    "error": f"{protocol.upper()} blocked with status {response.status_code}"
+                }
+            
+            if len(response.text) < 300 or "captcha" in response.text.lower() or "cloudflare" in response.text.lower():
+                return {
+                    "domain": domain,
+                    "category": "blocked",
+                    "error": f"{protocol.upper()} suspicious or protected content"
+                }
+            
+            soup = BeautifulSoup(response.text, "html.parser")
 
-        if info["is_tied"] or info["confidence"] == "low":
-            expanded_text = extract_text(soup, max_paragraphs=5)
-            category, info = classify_text(expanded_text)
+            base_text = extract_text(soup, max_paragraphs=1)
+            category, info = classify_text(base_text)
 
-        return {
-            "domain": domain,
-            "category": category,
-            "confidence": info["confidence"],
-            "is_tied": info["is_tied"],
-            "scores": info["scores"]
-        }
-    
-    except Exception as e:
-        return {
-            "domain": domain,
-            "category": "error",
-            "error": str(e)
-        }
+            if info["is_tied"] or info["confidence"] == "low":
+                expanded_text = extract_text(soup, max_paragraphs=5)
+                category, info = classify_text(expanded_text)
+
+            return {
+                "domain": domain,
+                "category": category,
+                "confidence": info["confidence"],
+                "is_tied": info["is_tied"],
+                "scores": info["scores"]
+            }
+        
+        except Exception as e:
+            last_error = str(e)
+            continue
+  
+    return {
+        "domain": domain,
+        "category": "error",
+        "error": f"Both HTTPS and HTTP failed: {last_error}"
+    }
+
 
