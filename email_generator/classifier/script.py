@@ -28,3 +28,8 @@ def run_scraper():
     domains = load_tranco_domains(csv_source, limit=LIMIT)
     previous = load_previous_results()
     processed = set(previous.keys())
+
+    is_first_result = not os.path.exists(output_file)
+    if is_first_result:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write("[\n]")
