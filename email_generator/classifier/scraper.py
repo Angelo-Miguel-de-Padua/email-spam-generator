@@ -14,4 +14,12 @@ def scraper(domain: str) -> dict:
         if info["is_tied"] or info["confidence"] == "low":
             expanded_text = extract_text(soup, max_paragraphs=5)
             category, info = classify_text(expanded_text)
-            
+
+        return {
+            "domain": domain,
+            "category": category,
+            "confidence": info["confidence"],
+            "is_tied": info["is_tied"],
+            "scores": info["scores"]
+        }
+
