@@ -33,3 +33,13 @@ def run_scraper():
     if is_first_result:
         with open(output_file, "w", encoding="utf-8") as f:
             f.write("[\n]")
+    
+    for i, domain in enumerate(domains, start=1):
+        if domain in processed:
+            print(f"[{i}] Skipping {domain} (already done)")
+            continue
+
+        result = scraper(domain)
+        save_result(result, is_first=is_first_result)
+        is_first_result = False
+        print(...)
