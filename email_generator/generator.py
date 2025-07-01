@@ -2,20 +2,27 @@ import random
 import pandas as pd
 from faker import Faker
 from datetime import datetime, timedelta
-from ..utils.spam_utils import add_spam_characteristics 
-from .templates import ham_senders, spam_senders, ham_templates, spam_templates
+from .utils.spam_utils import add_spam_characteristics 
+from .utils.domain_utils import load_tranco_domains
+from .templates import spam_senders, ham_templates, spam_templates
 
 class EmailDatasetGenerator:
     def __init__(self):
-        self.ham_senders = ham_senders
+        self.ham_domains = load_tranco_domains("resources/top-1m.csv", limit=500)
         self.spam_senders = spam_senders
         self.ham_templates = ham_templates
         self.spam_templates = spam_templates
         self.faker = Faker()
     
     def generate_ham_email(self):
-        category = random.choice(list(self.ham_senders.keys()))
-        sender = random.choice(self.ham_senders[category])
+        domain = random.choice(self.ham_domains)
+
+        if random.random() < 0.8:
+            prefix = random.choice(["info", "support", "noreply", "team", "updates"])
+        else:
+            prefix = self.faker.user_name()
+        
+        sender = f"{prefix}@{domain}"
 
         template_category = random.choice(list(self.ham_templates.keys()))
         subject_template, content_template = random.choice(self.ham_templates[template_category])
@@ -51,7 +58,7 @@ class EmailDatasetGenerator:
             'sender': sender,
             'content': content,
             'label': 'ham',
-            'sender_domain': sender.split('@')[1] if '@' in sender else 'unknown'
+            'sender_domain': domain
         }
     
     def generate_spam_email(self):
