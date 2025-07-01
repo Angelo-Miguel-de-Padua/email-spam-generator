@@ -1,0 +1,12 @@
+[
+]{"domain": "google.com", "category": "general", "confidence": "low", "is_tied": false, "scores": {}},
+{"domain": "mail.ru", "category": "general", "confidence": "low", "is_tied": false, "scores": {}},
+{"domain": "microsoft.com", "category": "ecommerce", "confidence": "high", "is_tied": false, "scores": {"ecommerce": 2}},
+{"domain": "facebook.com", "category": "blocked", "error": "HTTPS suspicious or protected content"},
+{"domain": "dzen.ru", "category": "general", "confidence": "low", "is_tied": false, "scores": {}},
+{"domain": "apple.com", "category": "general", "confidence": "low", "is_tied": false, "scores": {}},
+{"domain": "amazonaws.com", "category": "health", "confidence": "low", "is_tied": true, "scores": {"health": 2, "security": 2}},
+{"domain": "googleapis.com", "category": "general", "confidence": "low", "is_tied": false, "scores": {}},
+{"domain": "youtube.com", "category": "blocked", "error": "HTTPS suspicious or protected content"},
+{"domain": "cloudflare.com   ", "category": "error", "error": "Both HTTPS and HTTP failed: HTTPConnectionPool(host='cloudflare.com%20%20%20', port=80): Max retries exceeded with url: / (Caused by NameResolutionError(\"<urllib3.connection.HTTPConnection object at 0x000001AB01CC2C10>: Failed to resolve 'cloudflare.com%20%20%20' ([Errno 11001] getaddrinfo failed)\"))"}
+]

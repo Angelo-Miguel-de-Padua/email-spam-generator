@@ -15,6 +15,8 @@ def random_user_agent() -> str:
     return random.choice(user_agents)
 
 def scraper(domain: str) -> dict:
+    last_error = None
+    
     for protocol in ["https", "http"]:
         url = f"{protocol}://{domain}"
 
