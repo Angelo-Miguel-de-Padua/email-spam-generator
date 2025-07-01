@@ -18,3 +18,5 @@ def extract_text(soup, max_paragraphs=3) -> str:
         text = p.get_text(strip=True)
         if len(text) > 30 and "cookie" not in text.lower():
             parts.append(text)
+    
+    return " ".join(parts)
