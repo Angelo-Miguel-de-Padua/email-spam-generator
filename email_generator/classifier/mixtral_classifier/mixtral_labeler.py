@@ -47,5 +47,35 @@ def ask_mixtral(text: str) -> dict:
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
             result["confidence"] = conf if conf.isdigit() else "low"
-            
+
+    return result
+
+def classify_domain_fallback(domain: str) -> dict:
+    prompt = f"""
+You are a domain classification expert.
+
+Classify the website based on its domain name:
+Domain: {domain}
+
+Choose only one of the following categories:
+ecommerce, education, news, jobs, finance, tech, travel, health, media, social, forum, sports, gaming, cloud, ai, crypto, security, real_estate, government, adult
+
+If you are unsure or cannot determine the category, respond with: unknown
+
+Respond in this format:
+category: <category>
+confidence: <1-10>
+"""
+    
+    response = call_mixtral(prompt)
+
+    result = {"category": "unknown", "confidence": "low"}
+    lines = response.splitlines()
+    for line in lines:
+        if line.startswith("category:"):
+            result["category"] = line.split(":", 1)[1].strip()
+        elif line.startswith("confidence:"):
+            conf = line.split(":", 1)[1].strip()
+            result["confidence"] = conf if conf.isdigit() else "low"
+    
     return result
