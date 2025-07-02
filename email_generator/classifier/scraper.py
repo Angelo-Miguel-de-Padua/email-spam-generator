@@ -23,7 +23,12 @@ def scraper(domain: str) -> dict:
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
-                context = browser.new_context(user_agent=random_user_agent())
+                context = browser.new_context(
+                    user_agent=random_user_agent(),
+                    viewport={"width": random.randint(1280, 1600), "height": random.randint(720, 1000)},
+                    locale="en-US",
+                    timezone_id="America/New-York",
+                    )
                 page = context.new_page()
 
                 try:
