@@ -1,8 +1,8 @@
-import requests
 import random
 from bs4 import BeautifulSoup
 from email_generator.classifier.classifier import classify_text
 from email_generator.classifier.text_extractor import extract_text
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 def random_user_agent() -> str:
     user_agents = [
@@ -21,23 +21,28 @@ def scraper(domain: str) -> dict:
         url = f"{protocol}://{domain}"
 
         try:
-            response = requests.get(url, timeout=5, headers={"User-Agent": random_user_agent()})
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(user_agent=random_user_agent())
+                page = context.new_page()
 
-            if response.status_code in [403, 429]:
-                return {
-                    "domain": domain,
-                    "category": "blocked",
-                    "error": f"{protocol.upper()} blocked with status {response.status_code}"
-                }
-            
-            if len(response.text) < 300 or "captcha" in response.text.lower() or "cloudflare" in response.text.lower():
-                return {
-                    "domain": domain,
-                    "category": "blocked",
-                    "error": f"{protocol.upper()} suspicious or protected content"
-                }
-            
-            soup = BeautifulSoup(response.text, "html.parser")
+                try:
+                    page.goto(url, timeout=10000)
+                except PlaywrightTimeout:
+                    browser.close()
+                    continue
+
+                html = page.content()
+                browser.close()
+
+                if len(html) < 300 or "captcha" in html.lower() or "cloudflare" in html.lower():
+                    return {
+                        "domain": domain,
+                        "category": "blocked",
+                        "error": f"{protocol.upper()} suspicious or protected content"
+                    }
+
+            soup = BeautifulSoup(html, "html.parser")
 
             base_text = extract_text(soup, max_paragraphs=1)
             category, info = classify_text(base_text)
