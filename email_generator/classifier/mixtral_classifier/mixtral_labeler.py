@@ -99,3 +99,64 @@ def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
         except json.JSONDecodeError:
             return False
         return any(normalize_domain(entry["domain"]) == domain for entry in data)
+    
+def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> dict | None:
+    domain = normalize_domain(domain)
+
+    if is_domain_labeled(domain, labeled_file):
+        return None
+    
+    result = get_scraped_data(domain, scraped_file)
+    if result is None:
+        return {
+            "domain": domain,
+            "category": "error",
+            "error": "Domain not found in scraped_data.json"
+        }
+    
+    try: 
+        if result["error"]:
+            classification = classify_domain_fallback(domain)
+            data = {
+                "domain": domain,
+                "text": "",
+                "category": classification["category"],
+                "confidence": classification["confidence"],
+                "source": "mixtral-fallback"
+            }
+        else:
+            if not result["text"] or len(result["text"]) < 30:
+                return {
+                    "domain": domain,
+                    "category": "error",
+                    "error": "not enough text extracted"
+                }
+            
+            classification = ask_mixtral(result["text"])
+            data = {
+                "domain": domain,
+                "text": result["text"],
+                "category": classification["category"],
+                "confidence": classification["confidence"],
+                "source": "mixtral"
+            }
+
+        try:
+            with open (labeled_file, "r", encoding="utf-8") as f:
+                labeled = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            labeled = []
+
+        labeled.append(data)
+
+        with open(labeled_file, "w", encoding="utf-8") as f:
+            json.dump(labeled, f, indent=2)
+        
+        return data
+    
+    except Exception as e:
+        return {
+            "domain": domain,
+            "category": "error",
+            "error": str(e)
+        }
