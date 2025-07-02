@@ -39,6 +39,9 @@ def store_scrape_results(result: dict):
             json.dump(data, f, indent=2)
 
 def scrape_and_extract(domain: str) -> dict:
+    if scraped_domains(domain):
+        return None
+
     last_error = None
 
     for protocol in ["https", "http"]:
