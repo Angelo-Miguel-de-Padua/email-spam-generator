@@ -83,18 +83,22 @@ def scrape_and_extract(domain: str) -> dict:
                 soup = BeautifulSoup(html, "html.parser")
                 extracted_text = extract_text(soup)
 
-                return {
+                result = {
                     "domain": domain,
                     "text": extracted_text,
                     "error": None
                 }
+                store_scrape_results(result)
+                return result
 
         except Exception as e:
             last_error = str(e)
             continue
 
-    return {
+    result = {
         "domain": domain,
         "text": "",
         "error": f"Both HTTPS and HTTP failed: {last_error}"
     }
+    store_scrape_results(result)
+    return (result)
