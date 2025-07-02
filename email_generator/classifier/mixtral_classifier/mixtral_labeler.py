@@ -31,3 +31,21 @@ def call_mixtral(prompt: str, retries: int = 2) -> str:
         except Exception as e:
             if attempt == retries:
                 raise Exception(f"Mixtral failed after {retries + 1} tries: {e}")
+
+def ask_mixtral(text: str) -> dict:
+    prompt = (
+        build_prompt(text) +
+        "\n\nRespond in this format:\ncategory: <category>\nconfidence: <1-10>"
+    )
+    response = call_mixtral(prompt)
+
+    lines = response.splitlines()
+    result = {"category": "unknown", "confidence": "low"}
+    for line in lines:
+        if line.startswith("category:"):
+            result["category"] = line.split(":", 1)[1].strip()
+        elif line.startswith("confidence:"):
+            conf = line.split(":", 1)[1].strip()
+            result["confidence"] = conf if conf.isdigit() else "low"
+            
+    return result
