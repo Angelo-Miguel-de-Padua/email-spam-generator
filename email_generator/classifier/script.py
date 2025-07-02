@@ -5,7 +5,7 @@ from email_generator.classifier.load_tranco import load_tranco_domains
 
 output_file = "resources/classified_domains.json"
 csv_source = "resources/top-1m.csv"
-LIMIT = 5000
+LIMIT = 10
 
 def load_previous_results() -> dict:
     if os.path.exists(output_file):
@@ -49,5 +49,5 @@ def run_scraper():
     with open(output_file, "a", encoding="utf-8") as f:
         f.write("\n]")
 
-if __name__ == "__main___":
+if __name__ == "__main__":
     run_scraper()
