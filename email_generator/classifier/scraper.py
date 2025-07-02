@@ -28,6 +28,15 @@ def scraper(domain: str) -> dict:
                     viewport={"width": random.randint(1280, 1600), "height": random.randint(720, 1000)},
                     locale="en-US",
                     timezone_id="America/New-York",
+                    extra_http_headers={
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "DNT": "1",
+                        "Upgrade-Insecure-Requests": "1",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-User": "?1"
+                    }
                     )
                 page = context.new_page()
 
