@@ -37,12 +37,19 @@ def scraper(domain: str) -> dict:
                         "Sec-Fetch-Site": "none",
                         "Sec-Fetch-User": "?1"
                     }
-                    )
+                )
                 page = context.new_page()
 
                 try:
                     page.goto(url, timeout=10000)
+                    page.wait_for_timeout(random.randint(1000, 2500))
+                    page.mouse.wheel(0, 3000)
+                    html = page.content()
                 except PlaywrightTimeout:
+                    browser.close()
+                    continue
+                except Exception as e:
+                    last_error = str(e)
                     browser.close()
                     continue
 
