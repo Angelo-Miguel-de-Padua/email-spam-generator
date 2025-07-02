@@ -89,3 +89,13 @@ def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
         except json.JSONDecodeError:
             return None
         return next((entry for entry in data if normalize_domain(entry["domain"]) == domain), None)
+    
+def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
+    if not os.path.exists(labeled_file):
+        return False
+    with open(labeled_file, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            return False
+        return any(normalize_domain(entry["domain"]) == domain for entry in data)
