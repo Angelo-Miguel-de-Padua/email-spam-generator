@@ -27,6 +27,17 @@ def scraped_domains(domain: str) -> bool:
             return False
         return any(entry["domain"] == domain for entry in data)
 
+def store_scrape_results(result: dict):
+    if not os.path.exists(SCRAPED_DOMAINS_FILE):
+        with open(SCRAPED_DOMAINS_FILE, "w", encoding="utf-8") as f:
+            json.dump([result], f, indent=2)
+    else:
+        with open(SCRAPED_DOMAINS_FILE, "r+", encoding="utf+8") as f:
+            data = json.load(f)
+            data.append(result)
+            f.seek(0)
+            json.dump(data, f, indent=2)
+
 def scrape_and_extract(domain: str) -> dict:
     last_error = None
 
