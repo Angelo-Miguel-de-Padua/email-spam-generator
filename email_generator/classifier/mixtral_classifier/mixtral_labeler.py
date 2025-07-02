@@ -1,1 +1,5 @@
 import json
+from email_generator.classifier.mixtral_classifier.mixtral_scraper import scrape_and_extract
+from email_generator.utils.prompt_template import build_prompt
+import requests
+

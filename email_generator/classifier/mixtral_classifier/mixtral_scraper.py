@@ -1,7 +1,11 @@
 import random
+import os
+import json
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+
+SCRAPED_DOMAINS_FILE = "labeled_domains.json"
 
 def random_user_agent() -> str:
     user_agents = [
@@ -12,6 +16,16 @@ def random_user_agent() -> str:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0"
     ]
     return random.choice(user_agents)
+
+def scraped_domains(domain: str) -> bool:
+    if not os.path.exists(SCRAPED_DOMAINS_FILE):
+        return False
+    with open(SCRAPED_DOMAINS_FILE, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            return False
+        return any(entry["domain"] == domain for entry in data)
 
 def scrape_and_extract(domain: str) -> dict:
     last_error = None
