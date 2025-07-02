@@ -1,8 +1,11 @@
 import random
+import os
+import json
 from bs4 import BeautifulSoup
-from email_generator.domain_classifier.classifier import classify_text
-from email_generator.domain_classifier.text_extractor import extract_text
+from email_generator.utils.text_extractor import extract_text
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+
+SCRAPED_DOMAINS_FILE = "labeled_domains.json"
 
 def random_user_agent() -> str:
     user_agents = [
@@ -14,9 +17,33 @@ def random_user_agent() -> str:
     ]
     return random.choice(user_agents)
 
-def scraper(domain: str) -> dict:
+def scraped_domains(domain: str) -> bool:
+    if not os.path.exists(SCRAPED_DOMAINS_FILE):
+        return False
+    with open(SCRAPED_DOMAINS_FILE, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            return False
+        return any(entry["domain"] == domain for entry in data)
+
+def store_scrape_results(result: dict):
+    if not os.path.exists(SCRAPED_DOMAINS_FILE):
+        with open(SCRAPED_DOMAINS_FILE, "w", encoding="utf-8") as f:
+            json.dump([result], f, indent=2)
+    else:
+        with open(SCRAPED_DOMAINS_FILE, "r+", encoding="utf+8") as f:
+            data = json.load(f)
+            data.append(result)
+            f.seek(0)
+            json.dump(data, f, indent=2)
+
+def scrape_and_extract(domain: str) -> dict:
+    if scraped_domains(domain):
+        return None
+
     last_error = None
-    
+
     for protocol in ["https", "http"]:
         url = f"{protocol}://{domain}"
 
@@ -27,16 +54,7 @@ def scraper(domain: str) -> dict:
                     user_agent=random_user_agent(),
                     viewport={"width": random.randint(1280, 1600), "height": random.randint(720, 1000)},
                     locale="en-US",
-                    timezone_id="America/New-York",
-                    extra_http_headers={
-                        "Accept-Language": "en-US,en;q=0.9",
-                        "DNT": "1",
-                        "Upgrade-Insecure-Requests": "1",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Sec-Fetch-User": "?1"
-                    }
+                    timezone_id="America/New_York"
                 )
                 page = context.new_page()
 
@@ -53,41 +71,34 @@ def scraper(domain: str) -> dict:
                     browser.close()
                     continue
 
-                html = page.content()
                 browser.close()
 
                 if len(html) < 300 or "captcha" in html.lower() or "cloudflare" in html.lower():
                     return {
                         "domain": domain,
-                        "category": "blocked",
+                        "text": "",
                         "error": f"{protocol.upper()} suspicious or protected content"
                     }
 
-            soup = BeautifulSoup(html, "html.parser")
+                soup = BeautifulSoup(html, "html.parser")
+                extracted_text = extract_text(soup)
 
-            base_text = extract_text(soup, max_paragraphs=1)
-            category, info = classify_text(base_text)
+                result = {
+                    "domain": domain,
+                    "text": extracted_text,
+                    "error": None
+                }
+                store_scrape_results(result)
+                return result
 
-            if info["is_tied"] or info["confidence"] == "low":
-                expanded_text = extract_text(soup, max_paragraphs=5)
-                category, info = classify_text(expanded_text)
-
-            return {
-                "domain": domain,
-                "category": category,
-                "confidence": info["confidence"],
-                "is_tied": info["is_tied"],
-                "scores": info["scores"]
-            }
-        
         except Exception as e:
             last_error = str(e)
             continue
-  
-    return {
+
+    result = {
         "domain": domain,
-        "category": "error",
+        "text": "",
         "error": f"Both HTTPS and HTTP failed: {last_error}"
     }
-
-
+    store_scrape_results(result)
+    return (result)
