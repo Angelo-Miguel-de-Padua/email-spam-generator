@@ -1,7 +1,7 @@
 import random
 from bs4 import BeautifulSoup
-from email_generator.classifier.classifier import classify_text
-from email_generator.classifier.text_extractor import extract_text
+from email_generator.domain_classifier.classifier import classify_text
+from email_generator.domain_classifier.text_extractor import extract_text
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 def random_user_agent() -> str:
