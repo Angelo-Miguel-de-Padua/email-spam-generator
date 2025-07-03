@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-SCRAPED_DOMAINS_FILE = "labeled_domains.json"
+SCRAPED_DOMAINS_FILE = "resources/scraped_domains.json"
 
 def random_user_agent() -> str:
     user_agents = [

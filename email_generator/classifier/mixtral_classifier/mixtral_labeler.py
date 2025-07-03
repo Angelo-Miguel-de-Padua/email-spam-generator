@@ -10,8 +10,8 @@ load_dotenv()
 
 OLLAMA_MODEL_NAME = "mixtral:8x7b-instruct-v0.1-q4_K_M"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
-scraped_file = "../resources/scraped_data.json"
-labeled_file = "../resources/labeled_data.json"
+scraped_file = "resources/scraped_data.json"
+labeled_file = "resources/labeled_data.json"
 
 def call_mixtral(prompt: str, retries: int = 2) -> str:
     for attempt in range(retries + 1):
