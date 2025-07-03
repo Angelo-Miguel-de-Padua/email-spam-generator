@@ -195,3 +195,9 @@ class CloudMetadataUpdater:
 
         logger.info(f"Total cloud metadata IPs: {len(all_ips)}")
         return all_ips
+    
+_metadata_updater = CloudMetadataUpdater()
+
+def get_dangerous_cloud_ips() -> set[str]:
+    """Get current set of dangerous cloud metadata IPs"""
+    return _metadata_updater.get_cloud_metadata_ips()
