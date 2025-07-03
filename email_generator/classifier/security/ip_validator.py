@@ -34,3 +34,32 @@ class CloudMetadataUpdater:
         self.cache_dir.mkdir(exist_ok=True)
         self.cache_ttl = cache_ttl
         self.cache_file = self.cache_dir / "cloud_metadata_ips.json"
+
+    def _get_cache_path(self, source_name: str) -> Path:
+        """
+
+        Return the cache file path for a specific metadata source.
+        
+        Args:
+            source_name (str): Identifier for the metadata source
+
+        Returns:
+            Path: Path to the corresponding cache file.
+        """
+        return self.cache_dir / f"{source_name}_metadata.json"
+    
+    def _is_cache_valid(self, cache_path: Path) -> bool:
+        """
+        Determine if a cache file is still valid based on TTL.
+
+        Args:
+            cache_path (Path): Path to the cache file.
+        
+        Returns:
+            bool: True if the cache file is still within TTL, else False.
+        """
+        if not cache_path.exists():
+            return False
+        
+        cache_age = time.time() - cache_path.stat().st_mtime
+        return cache_age < self.cache_ttl
