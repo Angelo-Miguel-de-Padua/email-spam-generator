@@ -25,7 +25,6 @@ def call_qwen(prompt: str, retries: int = 2) -> str:
                     "stream": False
                 }
             )
-
             if response.status_code == 200:
                 return response.json()["response"].strip().lower()
             else:
@@ -34,9 +33,9 @@ def call_qwen(prompt: str, retries: int = 2) -> str:
             if attempt == retries:
                 raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
 
-def ask_qwen(text: str) -> dict:
+def ask_qwen(text: str, domain: str) -> dict:
     prompt = (
-        build_prompt(text) +
+        build_prompt(text, domain) +
         "\n\nRespond in this format:\n"
         "category: <category>\n"
         "subcategory: <subcategory>\n"
@@ -62,11 +61,9 @@ def ask_qwen(text: str) -> dict:
             result["confidence"] = conf if conf.isdigit() else "low"
         elif line.startswith("explanation:"):
             result["explanation"] = line.split(":", 1)[1].strip()
-
     return result
 
 def classify_domain_fallback(domain: str) -> dict:
-    print(f"[Qwen fallback] Classifying domain only: {domain}")
     prompt = f"""
 You are a domain classification expert.
 
@@ -76,15 +73,23 @@ Domain: {domain}
 Choose only one of the following categories:
 ecommerce, education, news, jobs, finance, tech, travel, health, media, social, forum, sports, gaming, cloud, ai, crypto, security, real_estate, government, adult
 
-If you are unsure or cannot determine the category, respond with: unknown
+For each main category, also include a specific **subcategory**. Examples:
+- tech → "search", "hardware", "software", "developer tools"
+- ecommerce → "retail", "fashion", "electronics", "marketplace"
+- health → "medicine", "fitness", "mental health"
+- jobs → "job board", "freelancing", "company career page"
+- media → "video", "streaming", "music", "news"
 
-Respond in this format:
+If you're unsure about the correct category or subcategory, respond with:
+- category: unknown
+- subcategory: unknown
+
+Respond strictly in this format:
 category: <category>
 subcategory: <subcategory>
 confidence: <1-10>
 explanation: <why this category>
 """
-    
     response = call_qwen(prompt)
 
     result = {
@@ -97,14 +102,13 @@ explanation: <why this category>
     for line in lines:
         if line.startswith("category:"):
             result["category"] = line.split(":", 1)[1].strip()
-        if line.startswith("subcategory:"):
+        elif line.startswith("subcategory:"):
             result["subcategory"] = line.split(":", 1)[1].strip()
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
             result["confidence"] = conf if conf.isdigit() else "low"
         elif line.startswith("explanation:"):
             result["explanation"] = line.split(":", 1)[1].strip()
-    
     return result
 
 def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
@@ -116,7 +120,7 @@ def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
         except json.JSONDecodeError:
             return None
         return next((entry for entry in data if normalize_domain(entry["domain"]) == domain), None)
-    
+
 def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
     if not os.path.exists(labeled_file):
         return False
@@ -129,34 +133,30 @@ def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
             except json.JSONDecodeError:
                 continue
     return False
-    
+
 def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> dict | None:
     domain = normalize_domain(domain)
 
     if is_domain_labeled(domain, labeled_file):
-        print(f"[Skip] {domain} already labeled.")
         return None
-    
+
     result = get_scraped_data(domain, scraped_file)
     if result is None:
-        print(f"[Error] {domain} not found in scraped data.")
         return {
             "domain": domain,
             "category": "error",
             "error": "Domain not found in scraped_data.json"    
         }
-    
+
     try:
         error = result.get("error")
         text = result.get("text", "")
 
         if error or useless_text(text):
-            print (f"[Fallback] Classifying with domain only: {domain}")
             classification = classify_domain_fallback(domain)
             source = "qwen-fallback"
         else:
-            print(f"[Qwen] Prompting with extracted text: {domain}")
-            classification = ask_qwen(result["text"])
+            classification = ask_qwen(result["text"], domain)
             source = "qwen"
 
         data = {
@@ -169,16 +169,20 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             "source": source
         }
 
-        print (f"[Labeled] {domain} -> {data['category']} ({source})")
+        print(
+        f"[Labeled] {domain} -> {data['category']} "
+        f"subcategory: {data['subcategory']} "
+        f"confidence: {data['confidence']} "
+        f"explanation: {data['explanation']} ({source})"
+    )
 
         with open(labeled_file, "a", encoding="utf-8") as f:
             json.dump(data, f)
             f.write("\n")
-        
+
         return data
-    
+
     except Exception as e:
-        print (f"[Exception] {domain}: {str(e)}")
         return {
             "domain": domain,
             "category": "error",
