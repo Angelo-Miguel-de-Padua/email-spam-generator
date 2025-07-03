@@ -135,3 +135,28 @@ class CloudMetadataUpdater:
         except Exception as e:
             logger.warning(f"Failed to fetch from {source_name}: {e}")
             return None
+    
+    def _load_from_cache(self, source_name: str) -> Optional[set[str]]:
+        """
+        Loads cached IP addresses from a specific source, if the cache is still valid.
+
+        Args:
+            source_name (str): Identifier for the metadata source.
+
+        Returns:
+            Optional[set[str]]: Set of IPs if the cache is valid and readable, otherwise None.
+        """
+        cache_path = self._get_cache_path(source_name)
+
+        if not self._is_cache_valid(cache_path):
+            return None
+        
+        try:
+            with open(cache_path, 'r') as f:
+                cache_data = json.load(f)
+
+            return set(cache_data['ips'])
+        
+        except Exception as e:
+            logger.warning(f"Failed to load cache for {source_name}: {e}")
+            return None
