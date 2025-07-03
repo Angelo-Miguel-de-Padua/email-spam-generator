@@ -14,7 +14,6 @@ scraped_file = "resources/scraped_data.json"
 labeled_file = "resources/labeled_data.json"
 
 def call_qwen(prompt: str, retries: int = 2) -> str:
-    print("[Qwen] Prompting model...")
     for attempt in range(retries + 1):
         try:
             response = requests.post(
@@ -25,8 +24,6 @@ def call_qwen(prompt: str, retries: int = 2) -> str:
                     "stream": False
                 }
             )
-            print(f"[Qwen] Status code: {response.status_code}")
-            print(f"[Qwen] Raw response JSON: {response.text}")
 
             if response.status_code == 200:
                 return response.json()["response"].strip().lower()
