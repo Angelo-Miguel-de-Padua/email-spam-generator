@@ -33,7 +33,10 @@ def store_scrape_results(result: dict):
             json.dump([result], f, indent=2)
     else:
         with open(SCRAPED_DOMAINS_FILE, "r+", encoding="utf-8") as f:
-            data = json.load(f)
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                data = []
             data.append(result)
             f.seek(0)
             json.dump(data, f, indent=2)

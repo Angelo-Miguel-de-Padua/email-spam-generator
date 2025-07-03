@@ -1,6 +1,6 @@
 from email_generator.utils.load_tranco import load_tranco_domains
-from email_generator.classifier.mixtral_classifier.mixtral_scraper import scrape_and_extract, scraped_domains
-from email_generator.classifier.mixtral_classifier.mixtral_labeler import label_domain, is_domain_labeled
+from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract, scraped_domains
+from email_generator.classifier.qwen_classifier.qwen_labeler import label_domain, is_domain_labeled
 from tqdm import tqdm
 
 scrape_limit = 10

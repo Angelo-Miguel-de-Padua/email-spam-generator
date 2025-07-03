@@ -2,18 +2,19 @@ import os
 import json
 import requests
 from dotenv import load_dotenv
-from email_generator.classifier.mixtral_classifier.mixtral_scraper import scrape_and_extract
+from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 
 load_dotenv()
 
-OLLAMA_MODEL_NAME = "mixtral:8x7b-instruct-v0.1-q4_K_M"
+OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
 scraped_file = "resources/scraped_data.json"
 labeled_file = "resources/labeled_data.json"
 
-def call_mixtral(prompt: str, retries: int = 2) -> str:
+def call_qwen(prompt: str, retries: int = 2) -> str:
+    print("[Qwen] Prompting model...")
     for attempt in range(retries + 1):
         try:
             response = requests.post(
@@ -24,20 +25,23 @@ def call_mixtral(prompt: str, retries: int = 2) -> str:
                     "stream": False
                 }
             )
+            print(f"[Qwen] Status code: {response.status_code}")
+            print(f"[Qwen] Raw response JSON: {response.text}")
+
             if response.status_code == 200:
                 return response.json()["response"].strip().lower()
             else:
                 raise Exception(f"Status {response.status_code}: {response.text}")
         except Exception as e:
             if attempt == retries:
-                raise Exception(f"Mixtral failed after {retries + 1} tries: {e}")
+                raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
 
-def ask_mixtral(text: str) -> dict:
+def ask_qwen(text: str) -> dict:
     prompt = (
         build_prompt(text) +
         "\n\nRespond in this format:\ncategory: <category>\nconfidence: <1-10>"
     )
-    response = call_mixtral(prompt)
+    response = call_qwen(prompt)
 
     lines = response.splitlines()
     result = {"category": "unknown", "confidence": "low"}
@@ -67,7 +71,7 @@ category: <category>
 confidence: <1-10>
 """
     
-    response = call_mixtral(prompt)
+    response = call_qwen(prompt)
 
     result = {"category": "unknown", "confidence": "low"}
     lines = response.splitlines()
@@ -122,7 +126,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
                 "text": "",
                 "category": classification["category"],
                 "confidence": classification["confidence"],
-                "source": "mixtral-fallback"
+                "source": "qwen-fallback"
             }
 
         elif not result["text"] or len(result["text"]) < 30:
@@ -132,21 +136,21 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
                 "text": result["text"],
                 "category": classification["category"],
                 "confidence": classification["confidence"],
-                "source": "mixtral-fallback"
+                "source": "qwen-fallback"
             }
 
         else:
-            classification = ask_mixtral(result["text"])
+            classification = ask_qwen(result["text"])
             data = {
                 "domain": domain,
                 "text": result["text"],
                 "category": classification["category"],
                 "confidence": classification["confidence"],
-                "source": "mixtral"
+                "source": "qwen"
             }
 
         try:
-            with open (labeled_file, "r", encoding="utf-8") as f:
+            with open(labeled_file, "r", encoding="utf-8") as f:
                 labeled = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             labeled = []
