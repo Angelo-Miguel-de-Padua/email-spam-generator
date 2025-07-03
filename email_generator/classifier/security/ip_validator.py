@@ -233,4 +233,8 @@ def is_dangerous_ip(ip_str: str) -> bool:
 
         return False
     except ValueError:
-        return True  
+        return True
+
+def refresh_cloud_metadata_ips():
+    """Manually refresh cloud metadata IPs"""
+    return _metadata_updater.get_cloud_metadata_ips(force_refresh=True)
