@@ -4,6 +4,7 @@ import re
 import ipaddress
 import json
 import requests
+import socket
 from pathlib import Path
 from typing import Optional
 
@@ -238,3 +239,39 @@ def is_dangerous_ip(ip_str: str) -> bool:
 def refresh_cloud_metadata_ips():
     """Manually refresh cloud metadata IPs"""
     return _metadata_updater.get_cloud_metadata_ips(force_refresh=True)
+
+def check_domain_safety(domain: str) -> bool:
+    """
+    Validates a domain by resolving its IPs and ensuring none match dangerous or reserved address ranges.
+    """
+    try:
+        all_ips = []
+
+        try:
+            ipv4_info = socket.getaddrinfo(domain, None, socket.AF_INET)
+            for info in ipv4_info:
+                all_ips.append(info[4][0])
+        except socket.gaierror:
+            pass
+
+        try:
+            ipv6_info = socket.getaddrinfo(domain, None, socket.AF_INET6)
+            for info in ipv6_info:
+                ip = info[4][0]
+                if '%' in ip:
+                    ip = ip.split('%')[0]
+                all_ips.append(ip)
+        except socket.gaierror:
+            pass
+
+        if not all_ips:
+            return False
+        
+        for ip in all_ips:
+            if is_dangerous_ip(ip):
+                return False
+            
+        return True
+    
+    except Exception:
+        return False
