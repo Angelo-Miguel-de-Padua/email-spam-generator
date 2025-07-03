@@ -1,7 +1,7 @@
 import os
 import json
 from email_generator.classifier.keyword_classifier.scraper import scraper
-from email_generator.classifier.keyword_classifier.load_tranco import load_tranco_domains
+from email_generator.utils.load_tranco import load_tranco_domains
 
 output_file = "resources/classified_domains.json"
 csv_source = "resources/top-1m.csv"
