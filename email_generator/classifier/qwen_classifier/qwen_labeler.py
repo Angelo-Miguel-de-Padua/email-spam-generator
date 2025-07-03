@@ -52,6 +52,7 @@ def ask_qwen(text: str) -> dict:
     return result
 
 def classify_domain_fallback(domain: str) -> dict:
+    print(f"[Qwen fallback] Classifying domain only: {domain}")
     prompt = f"""
 You are a domain classification expert.
 
@@ -105,25 +106,30 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
     domain = normalize_domain(domain)
 
     if is_domain_labeled(domain, labeled_file):
+        print(f"[Skip] {domain} already labeled.")
         return None
     
     result = get_scraped_data(domain, scraped_file)
     if result is None:
+        print(f"[Error] {domain} not found in scraped data.")
         return {
             "domain": domain,
             "category": "error",
-            "error": "Domain not found in scraped_data.json"
+            "error": "Domain not found in scraped_data.json"    
         }
     
-    try: 
-        if result["error"] or not result.get("text") or len(result["text"]) < 30:
+    try:
+        error = result.get("error")
+        text = result.get("text", "")
+
+        if error or not text or len(text.strip()) < 30:
+            print (f"[Fallback] Classifying with domain only: {domain}")
             classification = classify_domain_fallback(domain)
             source = "qwen-fallback"
-            text = result.get("text", "")
         else:
+            print(f"[Qwen] Prompting with extracted text: {domain}")
             classification = ask_qwen(result["text"])
             source = "qwen"
-            text = result["text"]
 
         data = {
             "domain": domain,
@@ -132,6 +138,8 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             "confidence": classification["confidence"],
             "source": source
         }
+
+        print (f"[Labeled] {domain} -> {data['category']} ({source})")
 
         try:
             with open(labeled_file, "r", encoding="utf-8") as f:
@@ -147,6 +155,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
         return data
     
     except Exception as e:
+        print (f"[Exception] {domain}: {str(e)}")
         return {
             "domain": domain,
             "category": "error",
