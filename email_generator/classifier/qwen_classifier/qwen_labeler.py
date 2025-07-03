@@ -97,11 +97,14 @@ def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
     if not os.path.exists(labeled_file):
         return False
     with open(labeled_file, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            return False
-        return any(normalize_domain(entry["domain"]) == domain for entry in data)
+        for line in f:
+            try:
+                entry = json.loads(line)
+                if normalize_domain(entry["domain"]) == domain:
+                    return True
+            except json.JSONDecodeError:
+                continue
+    return False
     
 def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> dict | None:
     domain = normalize_domain(domain)
@@ -142,16 +145,9 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
 
         print (f"[Labeled] {domain} -> {data['category']} ({source})")
 
-        try:
-            with open(labeled_file, "r", encoding="utf-8") as f:
-                labeled = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            labeled = []
-
-        labeled.append(data)
-
-        with open(labeled_file, "w", encoding="utf-8") as f:
-            json.dump(labeled, f, indent=2)
+        with open(labeled_file, "a", encoding="utf-8") as f:
+            json.dump(data, f)
+            f.write("\n")
         
         return data
     
