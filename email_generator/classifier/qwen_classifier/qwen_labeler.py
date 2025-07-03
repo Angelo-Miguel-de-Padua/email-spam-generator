@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
+from email_generator.utils.text_filters import useless_text
 
 load_dotenv()
 
@@ -122,7 +123,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
         error = result.get("error")
         text = result.get("text", "")
 
-        if error or not text or len(text.strip()) < 30:
+        if error or useless_text(text):
             print (f"[Fallback] Classifying with domain only: {domain}")
             classification = classify_domain_fallback(domain)
             source = "qwen-fallback"
