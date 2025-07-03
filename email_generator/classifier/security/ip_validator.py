@@ -213,16 +213,16 @@ def is_dangerous_ip(ip_str: str) -> bool:
             return True
         
         if isinstance(ip, ipaddress.IPv4Address):
-            return {
+            return (
                 ip.is_private or
                 ip.is_loopback or
                 ip.is_link_local or
                 ip.is_multicast or
                 ip.is_reserved or
                 ip.is_unspecified
-            }
+            )
         elif isinstance(ip, ipaddress.IPv6Address):
-            return {
+            return (
                 ip.is_private or
                 ip.is_loopback or
                 ip.is_link_local or
@@ -230,7 +230,7 @@ def is_dangerous_ip(ip_str: str) -> bool:
                 ip.is_reserved or
                 ip.is_unspecified or
                 ip.is_site_local
-            }
+            )
 
         return False
     except ValueError:
