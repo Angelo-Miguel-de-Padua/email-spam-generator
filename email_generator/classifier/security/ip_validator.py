@@ -2,7 +2,10 @@ import logging
 import time
 import re
 import ipaddress
+import json
+import requests
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -96,3 +99,39 @@ class CloudMetadataUpdater:
                 continue
 
         return valid_ips
+    
+    def _fetch_from_source(self, source_name: str, url: str) -> Optional[set[str]]:
+        """
+        Fetches cloud metadata IP addresses from a remote source URL.
+
+        Args:
+            source_name (str): Identifier for the metadata source (used for cache naming).
+            url (str): The URL to fetch the IP data from.
+
+        Returns:
+            Optional[set[str]]: A set of extracted IPs if successful, otherwise None.
+        """
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            
+            # Extract IPs from the content
+            ips = self._extract_ips_from_text(response.text)
+            
+            # Cache the results
+            cache_path = self._get_cache_path(source_name)
+            cache_data = {
+                'timestamp': time.time(),
+                'ips': list(ips),
+                'source_url': url
+            }
+            
+            with open(cache_path, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+            
+            logger.info(f"Fetched {len(ips)} IPs from {source_name}")
+            return ips
+            
+        except Exception as e:
+            logger.warning(f"Failed to fetch from {source_name}: {e}")
+            return None
