@@ -37,18 +37,23 @@ def call_qwen(prompt: str, retries: int = 2) -> str:
 def ask_qwen(text: str) -> dict:
     prompt = (
         build_prompt(text) +
-        "\n\nRespond in this format:\ncategory: <category>\nconfidence: <1-10>"
+        "\n\nRespond in this format:\n"
+        "category: <category>\n"
+        "confidence: <1-10>\n"
+        "explanation: <why this category>"
     )
     response = call_qwen(prompt)
 
     lines = response.splitlines()
-    result = {"category": "unknown", "confidence": "low"}
+    result = {"category": "unknown", "confidence": "low", "explanation": ""}
     for line in lines:
         if line.startswith("category:"):
             result["category"] = line.split(":", 1)[1].strip()
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
             result["confidence"] = conf if conf.isdigit() else "low"
+        elif line.startswith("explanation:"):
+            result["explanation"] = line.split(":", 1)[1].strip()
 
     return result
 
@@ -68,11 +73,12 @@ If you are unsure or cannot determine the category, respond with: unknown
 Respond in this format:
 category: <category>
 confidence: <1-10>
+explanation: <why this category>
 """
     
     response = call_qwen(prompt)
 
-    result = {"category": "unknown", "confidence": "low"}
+    result = {"category": "unknown", "confidence": "low", "explanation": ""}
     lines = response.splitlines()
     for line in lines:
         if line.startswith("category:"):
@@ -80,6 +86,8 @@ confidence: <1-10>
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
             result["confidence"] = conf if conf.isdigit() else "low"
+        elif line.startswith("explanation:"):
+            result["explanation"] = line.split(":", 1)[1].strip()
     
     return result
 
@@ -140,6 +148,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             "text": text,
             "category": classification["category"],
             "confidence": classification["confidence"],
+            "explanation": classification.get("explanation", ""),
             "source": source
         }
 
