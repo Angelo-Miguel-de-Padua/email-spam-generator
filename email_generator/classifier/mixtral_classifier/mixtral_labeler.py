@@ -126,10 +126,13 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             }
         else:
             if not result["text"] or len(result["text"]) < 30:
-                return {
+                classification = classify_domain_fallback(domain)
+                data = {
                     "domain": domain,
-                    "category": "error",
-                    "error": "not enough text extracted"
+                    "text": result["text"],
+                    "category": classification["category"],
+                    "confidence": classification["confidence"],
+                    "source": "mixtral-fallback"
                 }
             
             classification = ask_mixtral(result["text"])
