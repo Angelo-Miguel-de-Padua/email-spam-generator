@@ -160,3 +160,38 @@ class CloudMetadataUpdater:
         except Exception as e:
             logger.warning(f"Failed to load cache for {source_name}: {e}")
             return None
+    
+    def get_cloud_metadata_ips(self, force_refresh: bool = False) -> set[str]:
+        """
+        Collects and returns a combined set of cloud metadata IPs from cache, fallback, or live sources.
+
+        Args: 
+            force_refresh (bool): if True, fetches fresh data from the sources instead of using cached results.
+        
+        Returns:
+            set[str]: A set of all known cloud metadata IPs, including fallback and dynamically fetched ones.
+        """
+        all_ips = set(fallback_cloud_metadata_ips)
+
+        for source_name, url in cloud_metadata_sources.items():
+            if not force_refresh:
+                cached_ips = self._load_from_cache(source_name)
+                if cached_ips:
+                    all_ips.update(cached_ips)
+                    continue
+            
+            fetched_ips = self._fetch_from_source(source_name, url)
+            if fetched_ips:
+                all_ips.update(fetched_ips)
+        
+        combined_cache = {
+            'timestamp': time.time(),
+            'ips': list(all_ips),
+            'sources': list(cloud_metadata_sources.keys())
+        }
+
+        with open(self.cache_file, 'w') as f:
+            json.dump(combined_cache, f, indent=2)
+
+        logger.info(f"Total cloud metadata IPs: {len(all_ips)}")
+        return all_ips
