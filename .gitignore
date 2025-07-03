@@ -25,6 +25,7 @@ Thumbs.db
 # CSV and generated datasets
 *.csv
 *.json
+*.jsonl
 
 # VS Code / PyCharm / Editor configs
 .vscode/

@@ -77,11 +77,13 @@ def scrape_and_extract(domain: str) -> dict:
                 browser.close()
 
                 if len(html) < 300 or "captcha" in html.lower() or "cloudflare" in html.lower():
-                    return {
+                    result = {
                         "domain": domain,
                         "text": "",
                         "error": f"{protocol.upper()} suspicious or protected content"
                     }
+                    store_scrape_results(result)
+                    return result
 
                 soup = BeautifulSoup(html, "html.parser")
                 extracted_text = extract_text(soup)

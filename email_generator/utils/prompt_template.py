@@ -4,20 +4,28 @@ CATEGORY_LIST = [
     "adult", "cloud", "ai", "crypto", "security", "government", "general"
 ]
 
-def build_prompt(text: str) -> str:
+def build_prompt(text: str, domain: str) -> str:
     categories = ", ".join(CATEGORY_LIST)
     return f"""
-You are an expert in web content classifier.
+You are an expert in domain classification.
 
-Your task is to read the following website content and categorize it into one of the following categories:
-{categories}
+Classify the following website based on its domain and content.
+
+### DOMAIN:
+{domain}
 
 ### WEBSITE TEXT:
 {text}
 
-### INSTRUCTION:
-Respond with only the most appropriate category name from the list above.
-Do not explain.
-Do not add extra punctuation or words.
-Just reply with the category.
+### CATEGORIES:
+Choose only one main category from the list:
+{categories}
+
+Also include the most appropriate subcategory (e.g., "apis", "banking", "streaming", "forums", "email", "hosting", etc.)
+
+### RESPONSE FORMAT:
+category: <main_category>
+subcategory: <subcategory>
+confidence: <1-10>
+explanation: <brief explanation why this category and subcategory were chosen>
 """
