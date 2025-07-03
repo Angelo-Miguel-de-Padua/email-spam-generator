@@ -116,35 +116,22 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
         }
     
     try: 
-        if result["error"]:
+        if result["error"] or not result.get("text") or len(result["text"]) < 30:
             classification = classify_domain_fallback(domain)
-            data = {
-                "domain": domain,
-                "text": "",
-                "category": classification["category"],
-                "confidence": classification["confidence"],
-                "source": "qwen-fallback"
-            }
-
-        elif not result["text"] or len(result["text"]) < 30:
-            classification = classify_domain_fallback(domain)
-            data = {
-                "domain": domain,
-                "text": result["text"],
-                "category": classification["category"],
-                "confidence": classification["confidence"],
-                "source": "qwen-fallback"
-            }
-
+            source = "qwen-fallback"
+            text = result.get("text", "")
         else:
             classification = ask_qwen(result["text"])
-            data = {
-                "domain": domain,
-                "text": result["text"],
-                "category": classification["category"],
-                "confidence": classification["confidence"],
-                "source": "qwen"
-            }
+            source = "qwen"
+            text = result["text"]
+
+        data = {
+            "domain": domain,
+            "text": text,
+            "category": classification["category"],
+            "confidence": classification["confidence"],
+            "source": source
+        }
 
         try:
             with open(labeled_file, "r", encoding="utf-8") as f:
