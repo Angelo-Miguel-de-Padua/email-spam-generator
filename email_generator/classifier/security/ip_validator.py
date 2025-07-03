@@ -275,3 +275,12 @@ def check_domain_safety(domain: str) -> bool:
     
     except Exception:
         return False
+    
+def scheduled_cloud_metadata_update() -> bool:
+    try:
+        new_ips = refresh_cloud_metadata_ips()
+        logger.info(f"Scheduled update completed: {len(new_ips)} cloud metadata IPs")
+        return True
+    except Exception as e:
+        logger.error(f"Scheduled update failed: {e}")
+        return False
