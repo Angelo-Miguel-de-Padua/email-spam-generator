@@ -3,6 +3,7 @@ import os
 import json
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
+from email_generator.classifier.security.cloud_metadata import check_domain_safety
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.json"
@@ -44,6 +45,13 @@ def store_scrape_results(result: dict):
 def scrape_and_extract(domain: str) -> dict:
     if scraped_domains(domain):
         return None
+    
+    if not check_domain_safety(domain):
+        result = {
+            "domain": domain,
+            "text": "",
+            "error": "Blocked: Domain resolved to dangerous internal or metadata IP"
+        }
 
     last_error = None
 
