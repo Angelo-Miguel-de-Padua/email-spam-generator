@@ -1,5 +1,7 @@
 import logging
 import time
+import re
+import ipaddress
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -63,3 +65,34 @@ class CloudMetadataUpdater:
         
         cache_age = time.time() - cache_path.stat().st_mtime
         return cache_age < self.cache_ttl
+    
+    def _extract_ips_from_text(self, text: str) -> set[str]:
+        """
+        Extracts valid cloud metadata-related IP addresses from a raw text blob.
+        
+        Args:
+            text (str): Raw content from the fetched source (e.g., GitHub README or list)
+        
+        Returns:
+            set[str]: A set of valid and relevant IP addresses.
+        """
+
+        ip_pattern = r'\b(?:[0-9]{1-3}\.){3}[0-9]{1-3}\b'
+        potential_ips = re.findall(ip_pattern, text)
+
+        valid_ips = set()
+        for ip in potential_ips:
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+
+                if (
+                    ip_obj.is_link_local or         # 169.254.x.x (AWS, Azure, GCP)
+                    ip.startswith("100.100.") or    # Alibaba metadata
+                    ip.startswith("169.254.")       # General cloud metadata
+                ):
+                    valid_ips.add(ip)
+            
+            except ValueError:
+                continue
+
+        return valid_ips
