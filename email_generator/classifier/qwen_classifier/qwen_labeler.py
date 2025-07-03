@@ -39,16 +39,24 @@ def ask_qwen(text: str) -> dict:
         build_prompt(text) +
         "\n\nRespond in this format:\n"
         "category: <category>\n"
+        "subcategory: <subcategory>\n"
         "confidence: <1-10>\n"
         "explanation: <why this category>"
     )
     response = call_qwen(prompt)
 
     lines = response.splitlines()
-    result = {"category": "unknown", "confidence": "low", "explanation": ""}
+    result = {
+        "category": "unknown", 
+        "subcategory": "unknown",
+        "confidence": "low", 
+        "explanation": ""
+    }
     for line in lines:
         if line.startswith("category:"):
             result["category"] = line.split(":", 1)[1].strip()
+        if line.startswith("subcategory:"):
+            result["subcategory"] = line.split(":", 1)[1].strip()
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
             result["confidence"] = conf if conf.isdigit() else "low"
@@ -72,17 +80,25 @@ If you are unsure or cannot determine the category, respond with: unknown
 
 Respond in this format:
 category: <category>
+subcategory: <subcategory>
 confidence: <1-10>
 explanation: <why this category>
 """
     
     response = call_qwen(prompt)
 
-    result = {"category": "unknown", "confidence": "low", "explanation": ""}
+    result = {
+        "category": "unknown",
+        "subcategory": "unknown", 
+        "confidence": "low", 
+        "explanation": ""
+    }
     lines = response.splitlines()
     for line in lines:
         if line.startswith("category:"):
             result["category"] = line.split(":", 1)[1].strip()
+        if line.startswith("subcategory:"):
+            result["subcategory"] = line.split(":", 1)[1].strip()
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
             result["confidence"] = conf if conf.isdigit() else "low"
@@ -147,6 +163,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             "domain": domain,
             "text": text,
             "category": classification["category"],
+            "subcategory": classification.get("subcategory", "unknown"),
             "confidence": classification["confidence"],
             "explanation": classification.get("explanation", ""),
             "source": source
