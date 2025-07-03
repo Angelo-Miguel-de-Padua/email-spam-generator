@@ -201,3 +201,36 @@ _metadata_updater = CloudMetadataUpdater()
 def get_dangerous_cloud_ips() -> set[str]:
     """Get current set of dangerous cloud metadata IPs"""
     return _metadata_updater.get_cloud_metadata_ips()
+
+def is_dangerous_ip(ip_str: str) -> bool:
+    """Determines if a given IP address is potentially dangerous"""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+
+        cloud_ips = get_dangerous_cloud_ips()
+        if ip_str in cloud_ips or str(ip) in cloud_ips:
+            return True
+        
+        if isinstance(ip, ipaddress.IPv4Address):
+            return {
+                ip.is_private or
+                ip.is_loopback or
+                ip.is_link_local or
+                ip.is_multicast or
+                ip.is_reserved or
+                ip.is_unspecified
+            }
+        elif isinstance(ip, ipaddress.IPv6Address):
+            return {
+                ip.is_private or
+                ip.is_loopback or
+                ip.is_link_local or
+                ip.is_multicast or
+                ip.is_reserved or
+                ip.is_unspecified or
+                ip.is_site_local
+            }
+
+        return False
+    except ValueError:
+        return True  
