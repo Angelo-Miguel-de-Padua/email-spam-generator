@@ -4,8 +4,8 @@ import json
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from email_generator.classifier.security.cloud_metadata import check_domain_safety
-from email_generator.utils.domain_utils import is_valid_domain
-from email_generator.utils.domain_utils import normalize_domain
+from email_generator.utils.domain_utils import is_valid_domain, normalize_domain
+from email_generator.utils.file_utils import append_json_safely
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.jsonl"
@@ -31,8 +31,8 @@ def scraped_domains(domain: str) -> bool:
         return any(entry["domain"] == domain for entry in data)
 
 def store_scrape_results(result: dict):
-    with open(SCRAPED_DOMAINS_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(result, ensure_ascii=False) + "\n")
+    append_json_safely(result, SCRAPED_DOMAINS_FILE)
+    
 
 def scrape_and_extract(domain: str) -> dict:
     normalized = normalize_domain(domain)

@@ -6,6 +6,7 @@ from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_e
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
+from email_generator.utils.file_utils import append_json_safely
 
 load_dotenv()
 
@@ -182,10 +183,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
         f"explanation: {data['explanation']} ({source})"
     )
 
-        with open(labeled_file, "a", encoding="utf-8") as f:
-            json.dump(data, f)
-            f.write("\n")
-
+        append_json_safely(data, labeled_file)
         return data
 
     except Exception as e:
