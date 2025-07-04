@@ -1,12 +1,15 @@
 import random
 import os
 import json
+import time
 from contextlib import contextmanager
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from email_generator.classifier.security.cloud_metadata import check_domain_safety
 from email_generator.utils.domain_utils import is_valid_domain, normalize_domain
 from email_generator.utils.file_utils import append_json_safely
+from email_generator.utils.rate_limiter import apply_rate_limit, get_adaptive_delay
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.jsonl"
@@ -60,23 +63,65 @@ def scraped_domains(domain: str) -> bool:
 def store_scrape_results(result: dict):
     append_json_safely(result, SCRAPED_DOMAINS_FILE)
 
+def validate_redirect_target(redirect_url: str, current_url: str) -> bool:
+    try:
+        if redirect_url.startswith(('/', '?', '#')):
+            absolute_url = urljoin(current_url, redirect_url)
+        elif redirect_url.startswith(('http://', 'https://')):
+            absolute_url = redirect_url
+        else:
+            return False
+
+        parsed = urlparse(absolute_url)
+
+        if not parsed.hostname:
+            return False
+        
+        normalized_domain = normalize_domain(parsed.hostname)
+
+        if not is_valid_domain(normalize_domain):
+            return False
+        
+        return check_domain_safety(normalized_domain)
+    
+    except Exception:
+        return False
+
 def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
     try:
         with get_browser_page() as page:
             redirect_count = 0
             redirect_exceeded = False
+            current_url = url
 
             def handle_response(response):
-                nonlocal redirect_count, redirect_exceeded
-                if 300 <= response.status < 400:
+                nonlocal redirect_count, redirect_exceeded, current_url
+
+                status = response.status
+                location = response.headers.get('location')
+
+                if status == 0:
+                    redirect_exceeded = True
+                    return
+                
+                if 300 <= status < 400:
                     redirect_count += 1
+
                     if redirect_count > MAX_REDIRECTS:
                         redirect_exceeded = True
+                        return
+                    
+                    if location.startswith(('http://', 'https://')):
+                        current_url = location
+                    else:
+                        current_url = urljoin(current_url, location)
 
             page.on("response", handle_response)
 
             try:
+                start_time = time.time()
                 page.goto(url, timeout=10000)
+                response_time = time.time() - start_time
 
                 if redirect_exceeded:
                     return {
@@ -89,6 +134,8 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                 page.mouse.wheel(0, 3000)
                 html = page.content()
 
+                time.sleep(get_adaptive_delay(had_error=False, response_time=response_time))
+
                 max_html_size = 1_000_000 # 1MB
                 if len(html) > max_html_size:
                     return {
@@ -98,8 +145,10 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                     }
 
             except PlaywrightTimeout:
+                time.sleep(get_adaptive_delay(had_error=True))
                 return None
             except Exception as e:
+                time.sleep(get_adaptive_delay(had_error=True))
                 if redirect_exceeded:
                     return {
                         "domain": normalized,
@@ -130,6 +179,8 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
 
 def scrape_and_extract(domain: str) -> dict:
     normalized = normalize_domain(domain)
+
+    apply_rate_limit(normalized)
 
     if not is_valid_domain(normalized):
         result = {
