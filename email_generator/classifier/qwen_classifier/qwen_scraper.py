@@ -4,6 +4,7 @@ import json
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from email_generator.classifier.security.cloud_metadata import check_domain_safety
+from email_generator.utils.domain_utils import is_valid_domain
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.json"
@@ -43,6 +44,15 @@ def store_scrape_results(result: dict):
             json.dump(data, f, indent=2)
 
 def scrape_and_extract(domain: str) -> dict:
+    if not is_valid_domain(domain):
+        result = {
+            "domain": domain,
+            "text": "",
+            "error": "Invalid domain format"
+        }
+        store_scrape_results(result)
+        return result
+    
     if scraped_domains(domain):
         return None
     
