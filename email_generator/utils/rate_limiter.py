@@ -17,3 +17,13 @@ def apply_rate_limit(domain: str):
     time.sleep(random.uniform(*JITTER_RANGE))
 
     _domain_last_request[domain] = time.time()
+
+def get_adaptive_delay(had_error: bool = False, response_time: float = 0.0) -> float:
+    base = random.uniform(*JITTER_RANGE)
+
+    if had_error:
+        return base * 2
+    if response_time > 8.0:
+        return base * 1.5
+    return base
+    
