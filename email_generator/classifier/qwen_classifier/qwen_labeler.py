@@ -6,13 +6,14 @@ from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_e
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
+from email_generator.utils.file_utils import append_json_safely
 
 load_dotenv()
 
 OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
-scraped_file = "resources/scraped_data.json"
-labeled_file = "resources/labeled_data.json"
+scraped_file = "resources/scraped_data.jsonl"
+labeled_file = "resources/labeled_data.jsonl"
 
 def call_qwen(prompt: str, retries: int = 2) -> str:
     for attempt in range(retries + 1):
@@ -115,11 +116,17 @@ def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
     if not os.path.exists(scraped_file):
         return None
     with open(scraped_file, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
+        for line in f:
             return None
-        return next((entry for entry in data if normalize_domain(entry["domain"]) == domain), None)
+        with open(scraped_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    if normalize_domain(entry["domain"]) == domain:
+                        return entry
+                except json.JSONDecodeError:
+                    continue
+        return None
 
 def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
     if not os.path.exists(labeled_file):
@@ -176,10 +183,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
         f"explanation: {data['explanation']} ({source})"
     )
 
-        with open(labeled_file, "a", encoding="utf-8") as f:
-            json.dump(data, f)
-            f.write("\n")
-
+        append_json_safely(data, labeled_file)
         return data
 
     except Exception as e:
