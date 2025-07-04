@@ -79,6 +79,18 @@ def scrape_and_extract(domain: str) -> dict:
                     page.wait_for_timeout(random.randint(1000, 2500))
                     page.mouse.wheel(0, 3000)
                     html = page.content()
+
+                    max_html_size = 1_000_000 #1MB
+                    if len(html) > max_html_size:
+                        result = {
+                            "domain": normalized,
+                            "text": "",
+                            "error": f"{protocol.upper()} HTML too large ({len(html)} bytes)"
+                        }
+                        store_scrape_results(result)
+                        browser.close()
+                        return result
+                    
                 except PlaywrightTimeout:
                     browser.close()
                     continue
