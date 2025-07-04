@@ -8,7 +8,7 @@ from email_generator.utils.domain_utils import is_valid_domain
 from email_generator.utils.domain_utils import normalize_domain
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-SCRAPED_DOMAINS_FILE = "resources/scraped_data.json"
+SCRAPED_DOMAINS_FILE = "resources/scraped_data.jsonl"
 
 def random_user_agent() -> str:
     user_agents = [
@@ -31,18 +31,8 @@ def scraped_domains(domain: str) -> bool:
         return any(entry["domain"] == domain for entry in data)
 
 def store_scrape_results(result: dict):
-    if not os.path.exists(SCRAPED_DOMAINS_FILE):
-        with open(SCRAPED_DOMAINS_FILE, "w", encoding="utf-8") as f:
-            json.dump([result], f, indent=2)
-    else:
-        with open(SCRAPED_DOMAINS_FILE, "r+", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-            except json.JSONDecodeError:
-                data = []
-            data.append(result)
-            f.seek(0)
-            json.dump(data, f, indent=2)
+    with open(SCRAPED_DOMAINS_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(result, ensure_ascii=False) + "\n")
 
 def scrape_and_extract(domain: str) -> dict:
     normalized = normalize_domain(domain)

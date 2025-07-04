@@ -11,8 +11,8 @@ load_dotenv()
 
 OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
-scraped_file = "resources/scraped_data.json"
-labeled_file = "resources/labeled_data.json"
+scraped_file = "resources/scraped_data.jsonl"
+labeled_file = "resources/labeled_data.jsonl"
 
 def call_qwen(prompt: str, retries: int = 2) -> str:
     for attempt in range(retries + 1):
@@ -115,11 +115,17 @@ def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
     if not os.path.exists(scraped_file):
         return None
     with open(scraped_file, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
+        for line in f:
             return None
-        return next((entry for entry in data if normalize_domain(entry["domain"]) == domain), None)
+        with open(scraped_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    if normalize_domain(entry["domain"]) == domain:
+                        return entry
+                except json.JSONDecodeError:
+                    continue
+        return None
 
 def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
     if not os.path.exists(labeled_file):
