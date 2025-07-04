@@ -9,6 +9,7 @@ from email_generator.utils.file_utils import append_json_safely
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.jsonl"
+MAX_REDIRECTS = 5
 
 def random_user_agent() -> str:
     user_agents = [
@@ -74,8 +75,32 @@ def scrape_and_extract(domain: str) -> dict:
                 )
                 page = context.new_page()
 
+                redirect_count = 0
+                redirect_exceeded = False
+
+                def handle_response(response):
+                    nonlocal redirect_count, redirect_exceeded
+                    if 300 <= response.status < 400:
+                        redirect_count += 1
+                        if redirect_count > MAX_REDIRECTS:
+                            redirect_exceeded = True
+                            page.close()
+                
+                page.on("response", handle_response)
+
                 try:
                     page.goto(url, timeout=10000)
+                    
+                    if redirect_exceeded:
+                        result = {
+                            "domain": normalized,
+                            "text": "",
+                            "error": f"{protocol.upper()} too many redirects (>{MAX_REDIRECTS})"
+                        }
+                        store_scrape_results(result)
+                        browser.close()
+                        return result
+
                     page.wait_for_timeout(random.randint(1000, 2500))
                     page.mouse.wheel(0, 3000)
                     html = page.content()
@@ -95,9 +120,19 @@ def scrape_and_extract(domain: str) -> dict:
                     browser.close()
                     continue
                 except Exception as e:
-                    last_error = str(e)
-                    browser.close()
-                    continue
+                    if redirect_exceeded:
+                        result = {
+                            "domain": normalized,
+                            "text": "",
+                            "error": f"{protocol.upper()} too many redirects (>{MAX_REDIRECTS})"
+                        }
+                        store_scrape_results(result)
+                        browser.close()
+                        return result
+                    else:
+                        last_error = str(e)
+                        browser.close()
+                        continue
 
                 browser.close()
 
