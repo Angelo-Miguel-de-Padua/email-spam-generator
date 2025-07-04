@@ -92,14 +92,29 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
         with get_browser_page() as page:
             redirect_count = 0
             redirect_exceeded = False
+            current_url = url
 
             def handle_response(response):
-                nonlocal redirect_count, redirect_exceeded
+                nonlocal redirect_count, redirect_exceeded, current_url
+
+                status = response.status
+                location = response.headers.get('location')
+
+                if status == 0:
+                    redirect_exceeded = True
+                    return
                 
-                if 300 <= response.status < 400:
+                if 300 <= status < 400:
                     redirect_count += 1
+
                     if redirect_count > MAX_REDIRECTS:
                         redirect_exceeded = True
+                        return
+                    
+                    if location.startswith(('http://', 'https://')):
+                        current_url = location
+                    else:
+                        current_url = urljoin(current_url, location)
 
             page.on("response", handle_response)
 
