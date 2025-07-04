@@ -1,6 +1,7 @@
 import pandas as pd
 import re
 import hashlib
+from urllib.parse import urlparse
 
 def load_tranco_domains(csv_path, limit=500):
     df = pd.read_csv(csv_path, header=None, names=["rank", "domain"])
@@ -8,9 +9,17 @@ def load_tranco_domains(csv_path, limit=500):
 
 def normalize_domain(domain: str) -> str:
     domain = domain.strip().lower()
-    if domain.startswith("www."):
-        domain = domain[4:]
-    return domain
+
+    if not domain.startswith(("http://", "https://")):
+        domain = f"http://{domain}"
+    
+    parsed = urlparse(domain)
+    hostname = parsed.hostname or parsed.netloc
+
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    return hostname
 
 def is_valid_domain(domain: str) -> bool:
     if len(domain) > 253:

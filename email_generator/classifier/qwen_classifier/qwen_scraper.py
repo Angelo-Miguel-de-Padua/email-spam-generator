@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from email_generator.classifier.security.cloud_metadata import check_domain_safety
 from email_generator.utils.domain_utils import is_valid_domain
+from email_generator.utils.domain_utils import normalize_domain
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.json"
@@ -44,29 +45,33 @@ def store_scrape_results(result: dict):
             json.dump(data, f, indent=2)
 
 def scrape_and_extract(domain: str) -> dict:
-    if not is_valid_domain(domain):
+    normalized = normalize_domain(domain)
+
+    if not is_valid_domain(normalized):
         result = {
-            "domain": domain,
+            "domain": normalized,
             "text": "",
-            "error": "Invalid domain format"
+          "error": "Invalid domain format"
         }
         store_scrape_results(result)
         return result
-    
-    if scraped_domains(domain):
+
+    if scraped_domains(normalized):
         return None
     
-    if not check_domain_safety(domain):
+    if not check_domain_safety(normalized):
         result = {
-            "domain": domain,
+            "domain": normalized,
             "text": "",
             "error": "Blocked: Domain resolved to dangerous internal or metadata IP"
         }
+        store_scrape_results(result)
+        return result 
 
     last_error = None
 
     for protocol in ["https", "http"]:
-        url = f"{protocol}://{domain}"
+        url = f"{protocol}://{normalized}"
 
         try:
             with sync_playwright() as p:
@@ -96,7 +101,7 @@ def scrape_and_extract(domain: str) -> dict:
 
                 if len(html) < 300 or "captcha" in html.lower() or "cloudflare" in html.lower():
                     result = {
-                        "domain": domain,
+                        "domain": normalized,
                         "text": "",
                         "error": f"{protocol.upper()} suspicious or protected content"
                     }
@@ -107,7 +112,7 @@ def scrape_and_extract(domain: str) -> dict:
                 extracted_text = extract_text(soup)
 
                 result = {
-                    "domain": domain,
+                    "domain": normalized,
                     "text": extracted_text,
                     "error": None
                 }
@@ -119,7 +124,7 @@ def scrape_and_extract(domain: str) -> dict:
             continue
 
     result = {
-        "domain": domain,
+        "domain": normalized,
         "text": "",
         "error": f"Both HTTPS and HTTP failed: {last_error}"
     }
