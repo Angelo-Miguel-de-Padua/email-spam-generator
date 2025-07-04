@@ -9,7 +9,7 @@ JITTER_RANGE = (1.5, 3.5)
 
 def apply_rate_limit(domain: str):
     now = time.time()
-    elapsed = now - _domain_last_request(domain)
+    elapsed = now - _domain_last_request[domain]
 
     if elapsed < MIN_DOMAIN_DELAY:
         time.sleep(MIN_DOMAIN_DELAY - elapsed)
