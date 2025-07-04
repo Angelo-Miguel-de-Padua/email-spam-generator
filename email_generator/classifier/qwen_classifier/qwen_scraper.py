@@ -3,6 +3,7 @@ import os
 import json
 import time
 from contextlib import contextmanager
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
 from email_generator.classifier.security.cloud_metadata import check_domain_safety
@@ -62,6 +63,30 @@ def scraped_domains(domain: str) -> bool:
 def store_scrape_results(result: dict):
     append_json_safely(result, SCRAPED_DOMAINS_FILE)
 
+def validate_redirect_target(redirect_url: str, current_url: str) -> bool:
+    try:
+        if redirect_url.startswith(('/', '?', '#')):
+            absolute_url = urljoin(current_url, redirect_url)
+        elif redirect_url.startswith(('http://', 'https://')):
+            absolute_url = redirect_url
+        else:
+            return False
+
+        parsed = urlparse(absolute_url)
+
+        if not parsed.hostname:
+            return False
+        
+        normalized_domain = normalize_domain(parsed.hostname)
+
+        if not is_valid_domain(normalize_domain):
+            return False
+        
+        return check_domain_safety(normalized_domain)
+    
+    except Exception:
+        return False
+
 def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
     try:
         with get_browser_page() as page:
@@ -70,6 +95,7 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
 
             def handle_response(response):
                 nonlocal redirect_count, redirect_exceeded
+                
                 if 300 <= response.status < 400:
                     redirect_count += 1
                     if redirect_count > MAX_REDIRECTS:
