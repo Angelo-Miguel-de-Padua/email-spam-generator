@@ -89,3 +89,7 @@ def is_scraping_allowed(domain: str, user_agent: str = "*") -> bool:
         _fetching_domains.pop(domain, None)
         _save_robots_cache()
         return allowed
+
+def force_save_robots_cache():
+    with _cache_lock:
+        _save_robots_cache(force=True)
