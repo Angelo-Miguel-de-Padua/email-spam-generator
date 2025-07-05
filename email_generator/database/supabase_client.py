@@ -68,3 +68,25 @@ class SupabaseClient:
                 f"Error getting domain data: {domain}"
             )
         return result[0] if result else None
+    
+    def store_scrape_results(self, domain: str, text: str, error: Optional[str] = None) -> bool:
+        data = {
+            "domain": domain,
+            "scraped_text": text,
+            "last_scraped": self._get_current_timestamp()
+        }
+
+        if error:
+            data["scrape_error"] = error
+            logger.warning(f"Storing scrape results for {domain} with error: {error}")
+        
+        result = self._safe_execute(
+            self.client.table("domain_labels").upsert(data),
+            f"Error storing scrape results for {domain}",
+            return_data=False
+        )
+
+        if result:
+            logger.info(f"Stored scrape results for {domain}")
+
+        return bool(result)
