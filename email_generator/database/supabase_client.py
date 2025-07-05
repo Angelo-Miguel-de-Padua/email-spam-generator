@@ -43,3 +43,12 @@ class SupabaseClient:
             f"Error checking domain existence: {domain}"
         )
         return bool(result)
+
+    def is_domain_scraped(self, domain: str) -> bool:
+        scraped_text = self._get_domain_field(domain, "scraped_text")
+        has_scraped = scraped_text is not None
+
+        if has_scraped:
+            logger.debug(f"Domain {domain} already scraped - skipping")
+
+        return has_scraped
