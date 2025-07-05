@@ -1,5 +1,8 @@
 import os
 import json
+import asyncio
+import aiohttp
+from aiohttp import TCPConnector
 import requests
 import time
 from dotenv import load_dotenv
@@ -42,6 +45,22 @@ OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
 scraped_file = "resources/scraped_data.jsonl"
 labeled_file = "resources/labeled_data.jsonl"
+
+session = None
+
+async def initialize_session():
+    global session
+    if session is None:
+        session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=60),  
+            connector=aiohttp.TCPConnector(limit=100) 
+        )
+
+async def close_session():
+    global session
+    if session:
+        await session.close()
+        session = None
 
 def call_qwen(prompt: str, retries: int = 2) -> str:
     for attempt in range(retries + 1):
@@ -200,7 +219,7 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             text=text,
             category=classification["category"],
             subcategory=classification.get("subcategory", "unknown"),
-            confidence=int(classification["confidence"]) if str(classification["confidence"]).isdigit else 0,
+            confidence=int(classification["confidence"]) if str(classification["confidence"]).isdigit() else 0,
             explanation=classification.get("explanation", ""),
             source=source,
             last_classified=time.time()
