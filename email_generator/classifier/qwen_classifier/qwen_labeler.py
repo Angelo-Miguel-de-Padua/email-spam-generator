@@ -88,7 +88,7 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
                 raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
             await asyncio.sleep(0.5)
 
-def ask_qwen(text: str, domain: str) -> dict:
+async def ask_qwen(text: str, domain: str) -> dict:
     prompt = (
         build_prompt(text, domain) +
         "\n\nRespond in this format:\n"
@@ -97,7 +97,7 @@ def ask_qwen(text: str, domain: str) -> dict:
         "confidence: <1-10>\n"
         "explanation: <why this category>"
     )
-    response = call_qwen(prompt)
+    response = await call_qwen(prompt)
 
     lines = response.splitlines()
     result = {
@@ -118,7 +118,7 @@ def ask_qwen(text: str, domain: str) -> dict:
             result["explanation"] = line.split(":", 1)[1].strip()
     return result
 
-def classify_domain_fallback(domain: str) -> dict:
+async def classify_domain_fallback(domain: str) -> dict:
     prompt = f"""
 You are a domain classification expert.
 
@@ -145,7 +145,7 @@ subcategory: <subcategory>
 confidence: <1-10>
 explanation: <why this category>
 """
-    response = call_qwen(prompt)
+    response = await call_qwen(prompt)
 
     result = {
         "category": "unknown",
@@ -192,7 +192,7 @@ def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
                 continue
     return False
 
-def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> ClassificationResult:
+async def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> ClassificationResult:
     domain = normalize_domain(domain)
 
     if is_domain_labeled(domain, labeled_file):
@@ -215,10 +215,10 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
         text = result.get("text", "")
 
         if error or useless_text(text):
-            classification = classify_domain_fallback(domain)
+            classification = await classify_domain_fallback(domain)
             source = "qwen-fallback"
         else:
-            classification = ask_qwen(result["text"], domain)
+            classification = await ask_qwen(result["text"], domain)
             source = "qwen"
 
         result_obj = ClassificationResult(
