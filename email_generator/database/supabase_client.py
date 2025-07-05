@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
+from typing import Optional, Any
 from supabase import create_client, Client
 
 load_dotenv()
@@ -28,3 +29,10 @@ class SupabaseClient:
         
     def _get_current_timestamp(self) -> str:
         return datetime.utcnow().isoformat()
+    
+    def _get_domain_field(self, domain: str, field: str) -> Optional[Any]:
+        result = self._safe_execute(
+            self.client.table("domain_labels").select(field).eq("domain", domain),
+            f"Error getting {field} for domain {domain}"
+        )
+        return result[0][field] if result else None
