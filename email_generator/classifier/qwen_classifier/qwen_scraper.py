@@ -117,18 +117,31 @@ async def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                     redirect_exceeded = True
                     return
                 
-                if 300 <= status < 400:
+                if 300 <= status < 400 and location:
                     redirect_count += 1
 
                     if redirect_count > MAX_REDIRECTS:
                         redirect_exceeded = True
                         return
                     
+                    if not validate_redirect_target(location, current_url):
+                        redirect_exceeded = True
+                        return
+                    
                     if location.startswith(('http://', 'https://')):
-                        current_url = location
+                        new_url = location
                     else:
-                        current_url = urljoin(current_url, location)
+                        new_url = urljoin(current_url, location)
 
+                    parsed_redirect = urlparse(new_url)
+                    if parsed_redirect.hostname:
+                        redirect_domain = normalize_domain(parsed_redirect.hostname)
+                        if not check_domain_safety(redirect_domain):
+                            redirect_exceeded = True
+                            return
+
+                    current_url = new_url
+                            
             page.on("response", handle_response)
 
             try:
