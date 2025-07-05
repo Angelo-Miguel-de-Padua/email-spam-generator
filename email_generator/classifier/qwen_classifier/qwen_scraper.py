@@ -1,8 +1,8 @@
 import random
 import os
 import json
-import time
-from contextlib import contextmanager
+import asyncio
+from contextlib import asynccontextmanager
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from email_generator.utils.text_extractor import extract_text
@@ -11,7 +11,7 @@ from email_generator.utils.domain_utils import is_valid_domain, normalize_domain
 from email_generator.utils.file_utils import append_json_safely
 from email_generator.utils.rate_limiter import apply_rate_limit, get_adaptive_delay
 from email_generator.utils.robots_util import is_scraping_allowed
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.jsonl"
 MAX_REDIRECTS = 5
@@ -26,27 +26,39 @@ def random_user_agent() -> str:
     ]
     return random.choice(user_agents)
 
-@contextmanager
-def get_browser_page():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+@asynccontextmanager
+async def get_browser_page():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor',
+            '--disable-extensions',
+            '--disable-plugins',
+            '--disable-images',  # Faster loading
+            '--disable-javascript',  # Security (if content allows)
+            '--no-sandbox',
+            '--disable-dev-shm-usage'
+        ]
+    )
         try:
-            context = browser.new_context(
+            context = await browser.new_context(
                 user_agent=random_user_agent(),
                 viewport={"width": random.randint(1280, 1600), "height": random.randint(720, 1000)},
                 locale="en-US",
-                timezone_id="America/New York"
+                timezone_id="America/New_York"
             )
             try:
-                page = context.new_page()
+                page = await context.new_page()
                 try:
                     yield page
                 finally:
-                    page.close()
+                    await page.close()
             finally:
-                context.close()
+                await context.close()
         finally:
-            browser.close()
+            await browser.close()
 
 def scraped_domains(domain: str) -> bool:
     if not os.path.exists(SCRAPED_DOMAINS_FILE):
@@ -80,7 +92,7 @@ def validate_redirect_target(redirect_url: str, current_url: str) -> bool:
         
         normalized_domain = normalize_domain(parsed.hostname)
 
-        if not is_valid_domain(normalize_domain):
+        if not is_valid_domain(normalized_domain):
             return False
         
         return check_domain_safety(normalized_domain)
@@ -88,9 +100,9 @@ def validate_redirect_target(redirect_url: str, current_url: str) -> bool:
     except Exception:
         return False
 
-def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
+async def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
     try:
-        with get_browser_page() as page:
+        async with get_browser_page() as page:
             redirect_count = 0
             redirect_exceeded = False
             current_url = url
@@ -105,24 +117,37 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                     redirect_exceeded = True
                     return
                 
-                if 300 <= status < 400:
+                if 300 <= status < 400 and location:
                     redirect_count += 1
 
                     if redirect_count > MAX_REDIRECTS:
                         redirect_exceeded = True
                         return
                     
+                    if not validate_redirect_target(location, current_url):
+                        redirect_exceeded = True
+                        return
+                    
                     if location.startswith(('http://', 'https://')):
-                        current_url = location
+                        new_url = location
                     else:
-                        current_url = urljoin(current_url, location)
+                        new_url = urljoin(current_url, location)
 
+                    parsed_redirect = urlparse(new_url)
+                    if parsed_redirect.hostname:
+                        redirect_domain = normalize_domain(parsed_redirect.hostname)
+                        if not check_domain_safety(redirect_domain):
+                            redirect_exceeded = True
+                            return
+
+                    current_url = new_url
+                            
             page.on("response", handle_response)
 
             try:
-                start_time = time.time()
-                page.goto(url, timeout=10000)
-                response_time = time.time() - start_time
+                start_time = asyncio.get_event_loop().time()
+                await page.goto(url, timeout=10000)
+                response_time = asyncio.get_event_loop().time() - start_time
 
                 if redirect_exceeded:
                     return {
@@ -131,11 +156,11 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                         "error": f"{protocol.upper()} too many redirects (>{MAX_REDIRECTS})"
                     }
 
-                page.wait_for_timeout(random.randint(1000, 2500))
-                page.mouse.wheel(0, 3000)
-                html = page.content()
+                await page.wait_for_timeout(random.randint(1000, 2500))
+                await page.mouse.wheel(0, 3000)
+                html = await page.content()
 
-                time.sleep(get_adaptive_delay(had_error=False, response_time=response_time))
+                await asyncio.sleep(get_adaptive_delay(had_error=False, response_time=response_time))
 
                 max_html_size = 1_000_000 # 1MB
                 if len(html) > max_html_size:
@@ -146,14 +171,14 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                     }
 
             except PlaywrightTimeout:
-                time.sleep(get_adaptive_delay(had_error=True))
+                await asyncio.sleep(get_adaptive_delay(had_error=True))
                 return {
                     "domain": normalized,
                     "text": "",
                     "error": f"{protocol.upper()} timeout after 10000ms"
                 }
             except Exception as e:
-                time.sleep(get_adaptive_delay(had_error=True))
+                await asyncio.sleep(get_adaptive_delay(had_error=True))
                 if redirect_exceeded:
                     return {
                         "domain": normalized,
@@ -197,7 +222,7 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
             "error": f"{protocol.upper()} browser error: {str(e)}"
         }    
 
-def scrape_and_extract(domain: str) -> dict:
+async def scrape_and_extract(domain: str) -> dict:
     normalized = normalize_domain(domain)
 
     apply_rate_limit(normalized)
@@ -212,7 +237,12 @@ def scrape_and_extract(domain: str) -> dict:
         return result
 
     if scraped_domains(normalized):
-        return None
+        return {
+        "domain": normalized,
+        "text": "",
+        "error": "Already scraped",
+        "skipped": True
+    }
     
     if not check_domain_safety(normalized):
         result = {
@@ -236,9 +266,9 @@ def scrape_and_extract(domain: str) -> dict:
 
     for protocol in ["https", "http"]:
         url = f"{protocol}://{normalized}"
-        result = try_scrape_protocol(url, normalized, protocol)
+        result = await try_scrape_protocol(url, normalized, protocol)
 
-        if result.get("error" is None):
+        if result.get("error") is None:
             store_scrape_results(result)
             return result
         else:

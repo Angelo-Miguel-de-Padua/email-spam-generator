@@ -1,7 +1,13 @@
 import os
 import json
+import asyncio
+import aiohttp
+from aiohttp import TCPConnector
 import requests
+import time
 from dotenv import load_dotenv
+from dataclasses import dataclass
+from typing import Optional
 from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
@@ -10,31 +16,79 @@ from email_generator.utils.file_utils import append_json_safely
 
 load_dotenv()
 
+@dataclass
+class ClassificationResult:
+    domain: str
+    category: str
+    subcategory: str = "unknown"
+    confidence: int = 0
+    explanation: str = ""
+    source: str = ""
+    text: str = ""
+    error: Optional[str] = None
+    last_classified: Optional[float] = None
+
+    def to_dict(self):
+        return {
+            "domain": self.domain,
+            "category": self.category,
+            "subcategory": self.subcategory,
+            "confidence": self.confidence,
+            "explanation": self.explanation,
+            "source": self.source,
+            "text": self.text,
+            "last_classified": self.last_classified or time.time(),
+            **({"error": self.error} if self.error else {})
+        }
+
 OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
 scraped_file = "resources/scraped_data.jsonl"
 labeled_file = "resources/labeled_data.jsonl"
 
-def call_qwen(prompt: str, retries: int = 2) -> str:
+session = None
+
+async def initialize_session():
+    global session
+    if session is None:
+        session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=60),  
+            connector=aiohttp.TCPConnector(limit=100) 
+        )
+
+async def close_session():
+    global session
+    if session:
+        await session.close()
+        session = None
+
+async def call_qwen(prompt: str, retries: int = 2) -> str:
+    global session
+    if session is None:
+        await initialize_session()
+
     for attempt in range(retries + 1):
         try:
-            response = requests.post(
+            async with session.post(
                 OLLAMA_ENDPOINT,
                 json={
                     "model": OLLAMA_MODEL_NAME,
                     "prompt": prompt,
                     "stream": False
                 }
-            )
-            if response.status_code == 200:
-                return response.json()["response"].strip().lower()
-            else:
-                raise Exception(f"Status {response.status_code}: {response.text}")
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data["response"].strip().lower()
+                else:
+                    error_text = await response.text()
+                    raise Exception (f"Status {response.status}: {error_text}")
         except Exception as e:
             if attempt == retries:
                 raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
+            await asyncio.sleep(0.5)
 
-def ask_qwen(text: str, domain: str) -> dict:
+async def ask_qwen(text: str, domain: str) -> dict:
     prompt = (
         build_prompt(text, domain) +
         "\n\nRespond in this format:\n"
@@ -43,7 +97,7 @@ def ask_qwen(text: str, domain: str) -> dict:
         "confidence: <1-10>\n"
         "explanation: <why this category>"
     )
-    response = call_qwen(prompt)
+    response = await call_qwen(prompt)
 
     lines = response.splitlines()
     result = {
@@ -64,7 +118,7 @@ def ask_qwen(text: str, domain: str) -> dict:
             result["explanation"] = line.split(":", 1)[1].strip()
     return result
 
-def classify_domain_fallback(domain: str) -> dict:
+async def classify_domain_fallback(domain: str) -> dict:
     prompt = f"""
 You are a domain classification expert.
 
@@ -91,7 +145,7 @@ subcategory: <subcategory>
 confidence: <1-10>
 explanation: <why this category>
 """
-    response = call_qwen(prompt)
+    response = await call_qwen(prompt)
 
     result = {
         "category": "unknown",
@@ -120,7 +174,7 @@ def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
                 try:
                     entry = json.loads(line)
                     if normalize_domain(entry["domain"]) == domain:
-                        return entry
+                        return entry 
                 except json.JSONDecodeError:
                     continue
     return None
@@ -138,54 +192,88 @@ def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
                 continue
     return False
 
-def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> dict | None:
+async def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> ClassificationResult:
     domain = normalize_domain(domain)
 
     if is_domain_labeled(domain, labeled_file):
-        return None
+        return ClassificationResult(
+            domain=domain,
+            category="error",
+            error="Already labeled"
+        )
 
     result = get_scraped_data(domain, scraped_file)
     if result is None:
-        return {
-            "domain": domain,
-            "category": "error",
-            "error": "Domain not found in scraped_data.json"    
-        }
-
+        return ClassificationResult(
+            domain=domain,
+            category="error",
+            error="Domain not found in scraped_data.json"
+        )
+    
     try:
         error = result.get("error")
         text = result.get("text", "")
 
         if error or useless_text(text):
-            classification = classify_domain_fallback(domain)
+            classification = await classify_domain_fallback(domain)
             source = "qwen-fallback"
         else:
-            classification = ask_qwen(result["text"], domain)
+            classification = await ask_qwen(result["text"], domain)
             source = "qwen"
 
-        data = {
-            "domain": domain,
-            "text": text,
-            "category": classification["category"],
-            "subcategory": classification.get("subcategory", "unknown"),
-            "confidence": classification["confidence"],
-            "explanation": classification.get("explanation", ""),
-            "source": source
-        }
+        result_obj = ClassificationResult(
+            domain=domain,
+            text=text,
+            category=classification["category"],
+            subcategory=classification.get("subcategory", "unknown"),
+            confidence=int(classification["confidence"]) if str(classification["confidence"]).isdigit() else 0,
+            explanation=classification.get("explanation", ""),
+            source=source,
+            last_classified=time.time()
+        )
 
         print(
-        f"[Labeled] {domain} -> {data['category']} "
-        f"subcategory: {data['subcategory']} "
-        f"confidence: {data['confidence']} "
-        f"explanation: {data['explanation']} ({source})"
-    )
+            f"[Labeled] {domain} -> {result_obj.category} "
+            f"subcategory: {result_obj.subcategory} "
+            f"confidence: {result_obj.confidence} "
+            f"explanation: {result_obj.explanation} ({source})"
+        )
 
-        append_json_safely(data, labeled_file)
-        return data
+        append_json_safely(result_obj.to_dict(), labeled_file)
+        return result_obj
 
     except Exception as e:
-        return {
-            "domain": domain,
-            "category": "error",
-            "error": str(e)
-        }
+        return ClassificationResult(
+            domain=domain,
+            category="error",
+            error=str(e),
+            last_classified=time.time()
+        )
+    
+async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
+    await initialize_session()
+    all_results = []
+
+    for i in range(0, len(domains), batch_size):
+        batch = domains[i:i + batch_size]
+        print(f"Processing batch {i//batch_size + 1}/{(len(domains) + batch_size - 1)//batch_size}")
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def process_domain(domain):
+            async with semaphore:
+                return await label_domain(domain)
+            
+        batch_results = await asyncio.gather(*[process_domain(d) for d in batch], return_exceptions=True)
+
+        for j, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                all_results.append(ClassificationResult(domain=batch[j], category="error", error=str(result)))
+            else:
+                all_results.append(result)
+        
+        if i + batch_size < len(domains):
+            await asyncio.sleep(1)
+
+    await close_session()
+    return all_results
