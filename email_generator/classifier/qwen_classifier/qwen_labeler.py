@@ -249,3 +249,31 @@ async def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scra
             error=str(e),
             last_classified=time.time()
         )
+    
+async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
+    await initialize_session()
+    all_results = []
+
+    for i in range(0, len(domains), batch_size):
+        batch = domains[i:i + batch_size]
+        print(f"Processing batch {i//batch_size + 1}/{(len(domains) + batch_size - 1)//batch_size}")
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def process_domain(domain):
+            async with semaphore:
+                return await label_domain(domain)
+            
+        batch_results = await asyncio.gather(*[process_domain(d) for d in batch], return_exceptions=True)
+
+        for j, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                all_results.append(ClassificationResult(domain=batch[j], category="error", error=str(result)))
+            else:
+                all_results.append(result)
+        
+        if i + batch_size < len(domains):
+            await asyncio.sleep(1)
+
+    await close_session()
+    return all_results
