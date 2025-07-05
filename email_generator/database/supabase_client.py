@@ -2,7 +2,7 @@ import os
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 from supabase import create_client, Client
 
 load_dotenv()
@@ -61,3 +61,10 @@ class SupabaseClient:
             logger.debug(f"Domain {domain} already classified - skipping")
         
         return has_category
+    
+    def get_domain_data(self, domain: str) -> Optional[Dict[str, Any]]:
+        result = self._safe_execute(
+                self.client.table("domain_labels").select("*").eq("domain", domain),
+                f"Error getting domain data: {domain}"
+            )
+        return result[0] if result else None
