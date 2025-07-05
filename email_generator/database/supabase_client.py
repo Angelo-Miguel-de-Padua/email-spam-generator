@@ -52,3 +52,12 @@ class SupabaseClient:
             logger.debug(f"Domain {domain} already scraped - skipping")
 
         return has_scraped
+    
+    def is_domain_classified(self, domain: str) -> bool:
+        category = self._get_domain_field(domain, "category")
+        has_category = category is not None
+
+        if has_category:
+            logger.debug(f"Domain {domain} already classified - skipping")
+        
+        return has_category
