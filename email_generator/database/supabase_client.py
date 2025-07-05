@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -24,3 +25,6 @@ class SupabaseClient:
         except Exception as e:
             logger.error(f"{error_msg}: {e}")
             return None if return_data else False
+        
+    def _get_current_timestamp(self) -> str:
+        return datetime.utcnow().isoformat()
