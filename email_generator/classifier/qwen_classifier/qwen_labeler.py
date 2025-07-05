@@ -77,7 +77,7 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
                     "stream": False
                 }
             ) as response:
-                if response.status_code == 200:
+                if response.status == 200:
                     data = await response.json()
                     return data["response"].strip().lower()
                 else:
