@@ -10,6 +10,7 @@ from email_generator.classifier.security.cloud_metadata import check_domain_safe
 from email_generator.utils.domain_utils import is_valid_domain, normalize_domain
 from email_generator.utils.file_utils import append_json_safely
 from email_generator.utils.rate_limiter import apply_rate_limit, get_adaptive_delay
+from email_generator.utils.robots_util import is_scraping_allowed
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SCRAPED_DOMAINS_FILE = "resources/scraped_data.jsonl"
@@ -203,7 +204,14 @@ def scrape_and_extract(domain: str) -> dict:
         store_scrape_results(result)
         return result 
 
-    last_error = None
+    if not is_scraping_allowed(normalized):
+        result = {
+            "domain": normalized,
+            "text": "",
+            "error": "Blocked: Disallowed by robots.txt"
+        }
+        store_scrape_results(result)
+        return result
 
     for protocol in ["https", "http"]:
         url = f"{protocol}://{normalized}"
