@@ -36,3 +36,10 @@ class SupabaseClient:
             f"Error getting {field} for domain {domain}"
         )
         return result[0][field] if result else None
+    
+    def domain_exists(self, domain: str) -> bool:
+        result = self._safe_execute(
+            self.client.table("domain_labels").select("domain").eq("domain", domain),
+            f"Error checking domain existence: {domain}"
+        )
+        return bool(result)
