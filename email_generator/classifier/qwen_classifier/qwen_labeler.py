@@ -1,7 +1,10 @@
 import os
 import json
 import requests
+import time
 from dotenv import load_dotenv
+from dataclasses import dataclass
+from typing import Optional
 from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
@@ -9,6 +12,31 @@ from email_generator.utils.text_filters import useless_text
 from email_generator.utils.file_utils import append_json_safely
 
 load_dotenv()
+
+@dataclass
+class ClassificationResult:
+    domain: str
+    category: str
+    subcategory: str = "unknown"
+    confidence: int = 0
+    explanation: str = ""
+    source: str = ""
+    text: str = ""
+    error: Optional[str] = None
+    last_classified: Optional[float] = None
+
+    def to_dict(self):
+        return {
+            "domain": self.domain,
+            "category": self.category,
+            "subcategory": self.subcategory,
+            "confidence": self.confidence,
+            "explanation": self.explanation,
+            "source": self.source,
+            "text": self.text,
+            "last_classified": self.last_classified or time.time(),
+            **({"error": self.error} if self.error else {})
+        }
 
 OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
@@ -120,7 +148,7 @@ def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
                 try:
                     entry = json.loads(line)
                     if normalize_domain(entry["domain"]) == domain:
-                        return entry
+                        return entry 
                 except json.JSONDecodeError:
                     continue
     return None
@@ -138,20 +166,24 @@ def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
                 continue
     return False
 
-def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> dict | None:
+def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> ClassificationResult:
     domain = normalize_domain(domain)
 
     if is_domain_labeled(domain, labeled_file):
-        return None
+        return ClassificationResult(
+            domain=domain,
+            category="error",
+            error="Already labeled"
+        )
 
     result = get_scraped_data(domain, scraped_file)
     if result is None:
-        return {
-            "domain": domain,
-            "category": "error",
-            "error": "Domain not found in scraped_data.json"    
-        }
-
+        return ClassificationResult(
+            domain=domain,
+            category="error",
+            error="Domain not found in scraped_data.json"
+        )
+    
     try:
         error = result.get("error")
         text = result.get("text", "")
@@ -163,29 +195,31 @@ def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_fi
             classification = ask_qwen(result["text"], domain)
             source = "qwen"
 
-        data = {
-            "domain": domain,
-            "text": text,
-            "category": classification["category"],
-            "subcategory": classification.get("subcategory", "unknown"),
-            "confidence": classification["confidence"],
-            "explanation": classification.get("explanation", ""),
-            "source": source
-        }
+        result_obj = ClassificationResult(
+            domain=domain,
+            text=text,
+            category=classification["category"],
+            subcategory=classification.get("subcategory", "unknown"),
+            confidence=int(classification["confidence"]) if str(classification["confidence"]).isdigit else 0,
+            explanation=classification.get("explanation", ""),
+            source=source,
+            last_classified=time.time()
+        )
 
         print(
-        f"[Labeled] {domain} -> {data['category']} "
-        f"subcategory: {data['subcategory']} "
-        f"confidence: {data['confidence']} "
-        f"explanation: {data['explanation']} ({source})"
-    )
+            f"[Labeled] {domain} -> {result_obj.category} "
+            f"subcategory: {result_obj.subcategory} "
+            f"confidence: {result_obj.confidence} "
+            f"explanation: {result_obj.explanation} ({source})"
+        )
 
-        append_json_safely(data, labeled_file)
-        return data
+        append_json_safely(result_obj.to_dict(), labeled_file)
+        return result_obj
 
     except Exception as e:
-        return {
-            "domain": domain,
-            "category": "error",
-            "error": str(e)
-        }
+        return ClassificationResult(
+            domain=domain,
+            category="error",
+            error=str(e),
+            last_classified=time.time()
+        )
