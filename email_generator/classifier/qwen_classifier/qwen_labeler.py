@@ -62,24 +62,31 @@ async def close_session():
         await session.close()
         session = None
 
-def call_qwen(prompt: str, retries: int = 2) -> str:
+async def call_qwen(prompt: str, retries: int = 2) -> str:
+    global session
+    if session is None:
+        await initialize_session()
+
     for attempt in range(retries + 1):
         try:
-            response = requests.post(
+            async with session.post(
                 OLLAMA_ENDPOINT,
                 json={
                     "model": OLLAMA_MODEL_NAME,
                     "prompt": prompt,
                     "stream": False
                 }
-            )
-            if response.status_code == 200:
-                return response.json()["response"].strip().lower()
-            else:
-                raise Exception(f"Status {response.status_code}: {response.text}")
+            ) as response:
+                if response.status_code == 200:
+                    data = await response.json()
+                    return data["response"].strip().lower()
+                else:
+                    error_text = await response.text()
+                    raise Exception (f"Status {response.status}: {error_text}")
         except Exception as e:
             if attempt == retries:
                 raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
+            await asyncio.sleep(0.5)
 
 def ask_qwen(text: str, domain: str) -> dict:
     prompt = (
