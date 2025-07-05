@@ -147,7 +147,11 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
 
             except PlaywrightTimeout:
                 time.sleep(get_adaptive_delay(had_error=True))
-                return None
+                return {
+                    "domain": normalized,
+                    "text": "",
+                    "error": f"{protocol.upper()} timeout after 10000ms"
+                }
             except Exception as e:
                 time.sleep(get_adaptive_delay(had_error=True))
                 if redirect_exceeded:
@@ -157,7 +161,11 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                         "error": f"{protocol.upper()} too many redirects (>{MAX_REDIRECTS})"
                     }
                 else:
-                    return None
+                    return {
+                        "domain": normalized,
+                        "text": "",
+                        "error": f"{protocol.upper()} page load error: {str(e)}"
+                    }
 
             if len(html) < 300 or "captcha" in html.lower() or "cloudflare" in html.lower():
                 return {
@@ -166,9 +174,16 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
                     "error": f"{protocol.upper()} suspicious or protected content"
                 }
 
-            soup = BeautifulSoup(html, "html.parser")
-            extracted_text = extract_text(soup)
-
+            try:
+                soup = BeautifulSoup(html, "html.parser")
+                extracted_text = extract_text(soup)
+            except Exception as e:
+                return {
+                    "domain": normalized,
+                    "text": extracted_text,
+                    "error": f"{protocol.upper()} text extraction failed: {str(e)}"
+                }
+            
             return {
                 "domain": normalized,
                 "text": extracted_text,
@@ -176,7 +191,11 @@ def try_scrape_protocol(url: str, normalized: str, protocol: str) -> dict:
             }
 
     except Exception as e:
-        return None    
+        return {
+            "domain": normalized,
+            "text": "",
+            "error": f"{protocol.upper()} browser error: {str(e)}"
+        }    
 
 def scrape_and_extract(domain: str) -> dict:
     normalized = normalize_domain(domain)
@@ -213,18 +232,22 @@ def scrape_and_extract(domain: str) -> dict:
         store_scrape_results(result)
         return result
 
+    failed_attempts = []
+
     for protocol in ["https", "http"]:
         url = f"{protocol}://{normalized}"
         result = try_scrape_protocol(url, normalized, protocol)
 
-        if result is not None:
+        if result.get("error" is None):
             store_scrape_results(result)
             return result
+        else:
+            failed_attempts.append(f"{protocol.upper()}: {result['error']}")
     
     result = {
         "domain": normalized,
         "text": "",
-        "error": f"Both HTTPS and HTTP failed: Connection/timeout errors"
+        "error": f"Both protocols failed - {': '.join(failed_attempts)}"
     }
     store_scrape_results(result)
     return result
