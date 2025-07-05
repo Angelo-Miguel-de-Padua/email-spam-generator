@@ -93,3 +93,12 @@ def is_scraping_allowed(domain: str, user_agent: str = "*") -> bool:
 def force_save_robots_cache():
     with _cache_lock:
         _save_robots_cache(force=True)
+
+def get_robots_cache_stats() -> dict:
+    with _cache_lock:
+        return {
+            "entries": len(_robots_cache),
+            "fetching": len(_fetching_domains),
+            "dirty": _cache_dirty,
+            "write_count": _cache_write_count
+        }
