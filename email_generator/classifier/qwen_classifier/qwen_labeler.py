@@ -226,13 +226,18 @@ async def label_domain(domain: str) -> ClassificationResult:
             logger.info(f"Using text-based classification for {domain}")
             classification = await ask_qwen(result["text"], domain)
             source = "qwen"
+        
+        try:
+            confidence = int(float(classification["confidence"]))
+        except (ValueError, TypeError):
+            confidence = 0
 
         result_obj = ClassificationResult(
             domain=domain,
             text=text,
             category=classification["category"],
             subcategory=classification.get("subcategory", "unknown"),
-            confidence=int(classification["confidence"]) if str(classification["confidence"]).isdigit() else 0,
+            confidence=confidence,
             explanation=classification.get("explanation", ""),
             source=source,
             last_classified=time.time()
