@@ -167,7 +167,16 @@ subcategory: <subcategory>
 confidence: <1-10>
 explanation: <why this category>
 """
-    response = await call_qwen(prompt)
+    try:
+        response = await call_qwen(prompt, retries=1) 
+    except Exception as e:
+        logger.error(f"Fallback classification failed for {domain}: {e}")
+        return {
+            "category": "unknown",
+            "subcategory": "unknown",
+            "confidence": "low",
+            "explanation": f"Qwen fallback failed: {str(e)}"
+        }
 
     result = {
         "category": "unknown",
