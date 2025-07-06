@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
-from typing import Optional
+from typing import Optional, Protocol
 from email_generator.utils.text_extractor import extract_text
 from email_generator.classifier.security.cloud_metadata import check_domain_safety
 from email_generator.utils.domain_utils import is_valid_domain, normalize_domain
@@ -25,51 +25,94 @@ class ScrapeResult:
     response_time: float = 0.0
     final_url: Optional[str] = None
 
-MAX_REDIRECTS = 5
+class BrowserPool:
+    def __init__(self, pool_size: int = 3):
+        self.pool_size = pool_size
+        self._browsers = []
+        self._available = asyncio.Queue()
+        self._initialized = False
+        self._playwright = None
 
-def random_user_agent() -> str:
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0"
-    ]
-    return random.choice(user_agents)
+    async def initialize(self):
+        if self._initialized:
+            return
+        
+        self._playwright = await async_playwright().start()
 
-@asynccontextmanager
-async def get_browser_page():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-extensions',
-            '--disable-plugins',
-            '--disable-images',
-            '--disable-javascript', 
-            '--no-sandbox',
-            '--disable-dev-shm-usage'
-        ]
-    )
         try:
-            context = await browser.new_context(
-                user_agent=random_user_agent(),
-                viewport={"width": random.randint(1280, 1600), "height": random.randint(720, 1000)},
-                locale="en-US",
-                timezone_id="America/New_York"
-            )
+            for _ in range(self.pool_size):
+                browser = await self._playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-images',
+                    '--disable-javascript', 
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage'
+                    ]
+                )
+                self._browsers.append(browser)
+                await self._available.put(browser)
+
+            self._initialized = True
+        except Exception:
+            await self.close()
+            raise
+
+    @asynccontextmanager
+    async def get_page(self):
+        if not self._initialized:
+            await self.initialize()
+            
+        browser = await self._available.get()
+        context = await browser.new_context(
+            user_agent=self._random_user_agent(),
+            viewport={"width": 1440, "height": 900},
+            locale="en-US",
+            timezone_id="America/New York"
+        )
+
+        try:
+            page = await context.new_page()
             try:
-                page = await context.new_page()
-                try:
-                    yield page
-                finally:
-                    await page.close()
+                yield page
             finally:
-                await context.close()
+                await page.close()
         finally:
-            await browser.close()
+            await context.close()
+            await self._available.put(browser)
+
+    def random_user_agent() -> str:
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0"
+        ]
+        return random.choice(user_agents)
+        
+    async def close(self):
+        for browser in self._browsers:
+            try:
+                await browser.close()
+            except Exception as e:
+                logger.warning(f"Error closing browser: {e}")
+            
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping playwright: {e}")
+            
+        self._browsers.clear()
+        self._playwright = None
+        self._initialized = False
+
+MAX_REDIRECTS = 5
 
 def scraped_domains(domain: str) -> bool:
     return db.is_domain_scraped(domain)
