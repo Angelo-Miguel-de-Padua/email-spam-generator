@@ -7,12 +7,11 @@ import json
 from dotenv import load_dotenv
 from dataclasses import dataclass
 from typing import Optional
-from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.database.supabase_client import db
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
-from email_generator.utils.file_utils import append_json_safely
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,7 +92,7 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
                 if response.status == 200:
                     data = await response.json()
                     logger.debug("Qwen API Call Successful")
-                    return data["response"].strip().lower()
+                    return data["response"]
                 else:
                     error_text = await response.text()
                     logger.warning(f"Qwen API returned status {response.status}: {error_text}")
@@ -155,43 +154,26 @@ If you're unsure about the correct category or subcategory, respond with:
 - category: unknown
 - subcategory: unknown
 
-Respond strictly in this format:
-category: <category>
-subcategory: <subcategory>
-confidence: <1-10>
-explanation: <why this category>
+Respond strictly in this JSON format:
+{{
+    "category": "<category>",
+    "subcategory": "<subcategory>",
+    "confidence": <1-10>,
+    "explanation": "<why this category>"
+}}
 """
     try:
         response = await call_qwen(prompt, retries=1) 
-    except Exception as e:
+        result = json.loads(response)
+        return result
+    except (json.JSONDecodeError, Exception) as e:
         logger.error(f"Fallback classification failed for {domain}: {e}")
         return {
             "category": "unknown",
             "subcategory": "unknown",
-            "confidence": "low",
+            "confidence": 0,
             "explanation": f"Qwen fallback failed: {str(e)}"
         }
-
-    result = {
-        "category": "unknown",
-        "subcategory": "unknown", 
-        "confidence": "low", 
-        "explanation": ""
-    }
-    lines = response.splitlines()
-    for line in lines:
-        if line.startswith("category:"):
-            result["category"] = line.split(":", 1)[1].strip()
-        elif line.startswith("subcategory:"):
-            result["subcategory"] = line.split(":", 1)[1].strip()
-        elif line.startswith("confidence:"):
-            conf = line.split(":", 1)[1].strip()
-            result["confidence"] = conf if conf.isdigit() else "low"
-        elif line.startswith("explanation:"):
-            result["explanation"] = line.split(":", 1)[1].strip()
-    
-    logger.debug(f"Fallback classification result for {domain}: {result}")
-    return result
 
 def get_scraped_data(domain: str) -> dict | None:
     domain = normalize_domain(domain)
