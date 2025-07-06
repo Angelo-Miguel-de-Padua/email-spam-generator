@@ -91,14 +91,26 @@ class SupabaseClient:
 
         return bool(result)
 
-    def store_classification_results(self, domain: str, category: str, subcategory: str = None, confidence: int = 0, explanation: str = None,
-                                     source: str = None, text: str = None, error: str = None) -> bool:
+    def store_classification_results(
+            self, 
+            domain: str, 
+            category: str, 
+            subcategory: str = None, 
+            confidence: int = 0, 
+            explanation: str = None,
+            source: str = None, 
+            text: str = None, 
+            error: str = None
+        ) -> bool:
         
+        flagged = bool(error)
+
         data = {
             "domain": domain,
             "category": category,
             "confidence": confidence,
-            "last_classified": self._get_current_timestamp()
+            "last_classified": self._get_current_timestamp(),
+            "flagged_for_review": flagged
         }
 
         data.update({k: v for k, v in {
