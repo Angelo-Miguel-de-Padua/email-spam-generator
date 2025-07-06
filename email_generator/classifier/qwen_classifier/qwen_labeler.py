@@ -3,6 +3,7 @@ import asyncio
 import aiohttp
 import time
 import logging
+import json
 from dotenv import load_dotenv
 from dataclasses import dataclass
 from typing import Optional
@@ -110,34 +111,30 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
 async def ask_qwen(text: str, domain: str) -> dict:
     prompt = (
         build_prompt(text, domain) +
-        "\n\nRespond in this format:\n"
-        "category: <category>\n"
-        "subcategory: <subcategory>\n"
-        "confidence: <1-10>\n"
-        "explanation: <why this category>"
+        "\n\nRespond strictly in this JSON format:\n"
+        '{\n'
+        '  "category": "<category>",\n'
+        '  "subcategory": "<subcategory>",\n'
+        '  "confidence": <1-10>,\n'
+        '  "explanation": "<why this category>"\n'
+        '}'
     )
+
     response = await call_qwen(prompt)
 
-    lines = response.splitlines()
-    result = {
-        "category": "unknown", 
-        "subcategory": "unknown",
-        "confidence": "low", 
-        "explanation": ""
-    }
-    for line in lines:
-        if line.startswith("category:"):
-            result["category"] = line.split(":", 1)[1].strip()
-        elif line.startswith("subcategory:"):
-            result["subcategory"] = line.split(":", 1)[1].strip()
-        elif line.startswith("confidence:"):
-            conf = line.split(":", 1)[1].strip()
-            result["confidence"] = conf if conf.isdigit() else "low"
-        elif line.startswith("explanation:"):
-            result["explanation"] = line.split(":", 1)[1].strip()
-
-    logger.debug(f"Qwen classification result for {domain}: {result}")
-    return result
+    try:
+        result = json.loads(response)
+        if not all(key in result for key in ["category", "subcategory", "confidence", "explanation"]):
+            raise ValueError("Missing expected fields in Qwen response")
+        return result
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(f"Qwen returned invalid JSON: {e}")
+        return {
+            "category": "unknown",
+            "subcategory": "unknown",
+            "confidence": 0,
+            "explanation": "Failed to parse JSON"
+        }
 
 async def classify_domain_fallback(domain: str) -> dict:
     logger.info(f"Using fallback classification for domain: {domain}")
