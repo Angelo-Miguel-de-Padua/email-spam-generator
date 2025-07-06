@@ -2,7 +2,7 @@ import os
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 from supabase import create_client, Client
 
 load_dotenv()
@@ -134,3 +134,15 @@ class SupabaseClient:
             logger.info(f"Stored classification for {domain}: {category}")
         
         return bool(result)
+    
+    def get_unclassified_domains(self, limit: int = 100) -> List[Dict[str, Any]]:
+        result = self._safe_execute(
+            self.client.table("domain_labels")
+            .select("*")
+            .not_.is_("scraped_text", None)
+            .is_("category", None)
+            .order("last_scraped", desc=True)
+            .limit(limit),
+            "Error getting unclassified domains"
+        )
+        return result or []
