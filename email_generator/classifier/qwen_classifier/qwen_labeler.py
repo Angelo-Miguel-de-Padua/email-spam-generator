@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from dataclasses import dataclass
 from typing import Optional
 from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
+from email_generator.database.supabase_client import db
 from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
@@ -43,8 +44,6 @@ class ClassificationResult:
 
 OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
-scraped_file = "resources/scraped_data.jsonl"
-labeled_file = "resources/labeled_data.jsonl"
 
 session = None
 
@@ -109,7 +108,7 @@ async def ask_qwen(text: str, domain: str) -> dict:
     for line in lines:
         if line.startswith("category:"):
             result["category"] = line.split(":", 1)[1].strip()
-        if line.startswith("subcategory:"):
+        elif line.startswith("subcategory:"):
             result["subcategory"] = line.split(":", 1)[1].strip()
         elif line.startswith("confidence:"):
             conf = line.split(":", 1)[1].strip()
@@ -166,48 +165,38 @@ explanation: <why this category>
             result["explanation"] = line.split(":", 1)[1].strip()
     return result
 
-def get_scraped_data(domain: str, scraped_file=scraped_file) -> dict | None:
-    if not os.path.exists(scraped_file):
-        return None
-    with open(scraped_file, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    entry = json.loads(line)
-                    if normalize_domain(entry["domain"]) == domain:
-                        return entry 
-                except json.JSONDecodeError:
-                    continue
+def get_scraped_data(domain: str) -> dict | None:
+    domain = normalize_domain(domain)
+    domain_data = db.get_domain_data(domain)
+
+    if domain_data and domain_data.get("scraped_text"):
+        return {
+            "domain": domain,
+            "text": domain_data["scraped_text"],
+            "error": domain_data.get("scrape_error")
+        }
     return None
 
-def is_domain_labeled(domain: str, labeled_file=labeled_file) -> bool:
-    if not os.path.exists(labeled_file):
-        return False
-    with open(labeled_file, "r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-                if normalize_domain(entry["domain"]) == domain:
-                    return True
-            except json.JSONDecodeError:
-                continue
-    return False
+def is_domain_labeled(domain: str) -> bool:
+    domain = normalize_domain(domain)
+    return db.is_domain_classified(domain)
 
-async def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scraped_file) -> ClassificationResult:
+async def label_domain(domain: str) -> ClassificationResult:
     domain = normalize_domain(domain)
 
-    if is_domain_labeled(domain, labeled_file):
+    if is_domain_labeled(domain):
         return ClassificationResult(
             domain=domain,
             category="error",
             error="Already labeled"
         )
 
-    result = get_scraped_data(domain, scraped_file)
+    result = get_scraped_data(domain)
     if result is None:
         return ClassificationResult(
             domain=domain,
             category="error",
-            error="Domain not found in scraped_data.json"
+            error="Domain not found or not scraped"
         )
     
     try:
@@ -239,14 +228,34 @@ async def label_domain(domain: str, labeled_file=labeled_file, scraped_file=scra
             f"explanation: {result_obj.explanation} ({source})"
         )
 
-        append_json_safely(result_obj.to_dict(), labeled_file)
+        success = db.store_classification_results(
+            domain=domain,
+            category=result_obj.category,
+            subcategory=result_obj.subcategory,
+            confidence=result_obj.confidence,
+            explanation=result_obj.explanation,
+            source=source,
+            text=text
+        )
+
+        if not success:
+            result_obj.error = "Failed to store classification in database"
+        
         return result_obj
 
     except Exception as e:
+        error_msg = str(e)
+
+        db.store_classification_results(
+            domain=domain,
+            category="error",
+            error=error_msg
+        )
+
         return ClassificationResult(
             domain=domain,
             category="error",
-            error=str(e),
+            error=error_msg,
             last_classified=time.time()
         )
     
@@ -277,3 +286,23 @@ async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max
 
     await close_session()
     return all_results
+
+async def classify_unclassified_domains(limit: int = 100) -> list[ClassificationResult]:
+    unclassified_domains = db.get_unclassified_domains(limit)
+    domain_names = [d["domain"] for d in unclassified_domains]
+
+    if not domain_names:
+        print("No unclassified domains found")
+        return []
+    
+    print(f"Found {len(domain_names)} unclassified domains")
+    return await label_domains_in_batches(domain_names)
+
+def get_classification_stats():
+    stats = db.get_classification_stats()
+    print(f"Classification stats:")
+    print(f"  Total domains: {stats['total_domains']}")
+    print(f"  Scraped domains: {stats['scraped_domains']}")
+    print(f"  Classified domains: {stats['classified_domains']}")
+    print(f"  Pending classification: {stats['pending_classification']}")
+    return stats
