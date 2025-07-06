@@ -90,3 +90,35 @@ class SupabaseClient:
             logger.info(f"Stored scrape results for {domain}")
 
         return bool(result)
+
+    def store_classification_results(self, domain: str, category: str, subcategory: str = None, confidence: int = 0, explanation: str = None,
+                                     source: str = None, text: str = None, error: str = None) -> bool:
+        
+        data = {
+            "domain": domain,
+            "category": category,
+            "confidence": confidence,
+            "last_classified": self._get_current_timestamp()
+        }
+
+        data.update({k: v for k, v in {
+            "subcategory": subcategory,
+            "explanation": explanation,
+            "source": source,
+            "text": text,
+            "error": error
+        }.items() if v is not None})
+
+        if error:
+            logger.warning(f"Storing classification for {domain} with error: {error}")
+        
+        result = self._safe_execute(
+            self.client.table("domain_labels").upsert(data),
+            f"Error storing classification for {domain}",
+            return_data=False
+        )
+
+        if result:
+            logger.info(f"Stored classification for {domain}: {category}")
+        
+        return bool(result)
