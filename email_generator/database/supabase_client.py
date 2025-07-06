@@ -160,3 +160,31 @@ class SupabaseClient:
             logger.warning(f"Failed to delete domain: {domain}")
         
         return bool(result)
+    
+    def get_classification_stats(self) -> Dict[str, int]:
+        try:
+            total_result = self.client.table("domain_labels").select("domain", count="exact").execute()
+            total_domains = total_result.count or 0
+
+            classified_result = self.client.table("domain_labels").select("domain", count="exact").not_.is_("category", None).execute()
+            classified_domains = classified_result or 0
+
+            scraped_result = self.client.table("domain_labels").select("domain", count="exact").not_.is_("scraped_text", None).execute()
+            scraped_domains = scraped_result or 0
+
+            logger.debug(f"Classification stats: {total_domains} total, {scraped_domains} scraped, {classified_domains} classified")
+
+            return {
+                "total_domains": total_domains,
+                "scraped_domains": scraped_domains,
+                "classified_domains": classified_domains,
+                "pending_classification": max(0, scraped_domains - classified_domains)
+            }
+        except Exception as e:
+            logger.error(f"Error getting classification stats: {e}")
+            return {
+                "total_domains": 0,
+                "scraped_domains": 0,
+                "classified_domains": 0,
+                "pending_classification": 0
+            }
