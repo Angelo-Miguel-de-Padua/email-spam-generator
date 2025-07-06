@@ -146,3 +146,17 @@ class SupabaseClient:
             "Error getting unclassified domains"
         )
         return result or []
+    
+    def delete_domain(self, domain: str) -> bool:
+        result = self._safe_execute(
+            self.client.table("domain_labels").delete().eq("domain", domain),
+            f"Error deleting domain: {domain}",
+            return_data=False
+        )
+
+        if result:
+            logger.info(f"Deleted domain: {domain}")
+        else:
+            logger.warning(f"Failed to delete domain: {domain}")
+        
+        return bool(result)
