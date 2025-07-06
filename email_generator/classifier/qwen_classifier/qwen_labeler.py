@@ -50,7 +50,7 @@ class ClassificationResult:
             **({"error": self.error} if self.error else {})
         }
 
-OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
+OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME")
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
 
 session = None
