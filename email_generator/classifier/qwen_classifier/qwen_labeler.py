@@ -1,10 +1,8 @@
 import os
-import json
 import asyncio
 import aiohttp
-from aiohttp import TCPConnector
-import requests
 import time
+import logging
 from dotenv import load_dotenv
 from dataclasses import dataclass
 from typing import Optional
@@ -14,6 +12,16 @@ from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
 from email_generator.utils.file_utils import append_json_safely
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('domain_classification.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -50,6 +58,7 @@ session = None
 async def initialize_session():
     global session
     if session is None:
+        logger.info("Initializing HTTP Session")
         session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=60),  
             connector=aiohttp.TCPConnector(limit=100) 
@@ -58,6 +67,7 @@ async def initialize_session():
 async def close_session():
     global session
     if session:
+        logger.info("Closing HTTP Session")
         await session.close()
         session = None
 
@@ -68,6 +78,7 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
 
     for attempt in range(retries + 1):
         try:
+            logger.debug(f"Calling Qwen API (attempt{attempt + 1}/{retries + 1})")
             async with session.post(
                 OLLAMA_ENDPOINT,
                 json={
@@ -78,13 +89,17 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
             ) as response:
                 if response.status == 200:
                     data = await response.json()
+                    logger.debug("Qwen API Call Successful")
                     return data["response"].strip().lower()
                 else:
                     error_text = await response.text()
+                    logger.warning(f"Qwen API returned status {response.status}: {error_text}")
                     raise Exception (f"Status {response.status}: {error_text}")
         except Exception as e:
             if attempt == retries:
+                logger.error(f"Qwen failed after {retries + 1} tries: {e}")
                 raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
+            logger.warning(f"Qwen attempt {attempt + 1} failed: {e}, retrying...")
             await asyncio.sleep(0.5)
 
 async def ask_qwen(text: str, domain: str) -> dict:
@@ -115,9 +130,12 @@ async def ask_qwen(text: str, domain: str) -> dict:
             result["confidence"] = conf if conf.isdigit() else "low"
         elif line.startswith("explanation:"):
             result["explanation"] = line.split(":", 1)[1].strip()
+
+    logger.debug(f"Qwen classification result for {domain}: {result}")
     return result
 
 async def classify_domain_fallback(domain: str) -> dict:
+    logger.info(f"Using fallback classification for domain: {domain}")
     prompt = f"""
 You are a domain classification expert.
 
@@ -163,6 +181,8 @@ explanation: <why this category>
             result["confidence"] = conf if conf.isdigit() else "low"
         elif line.startswith("explanation:"):
             result["explanation"] = line.split(":", 1)[1].strip()
+    
+    logger.debug(f"Fallback classification result for {domain}: {result}")
     return result
 
 def get_scraped_data(domain: str) -> dict | None:
@@ -175,16 +195,20 @@ def get_scraped_data(domain: str) -> dict | None:
             "text": domain_data["scraped_text"],
             "error": domain_data.get("scrape_error")
         }
+    logger.debug(f"No scraped data found for domain: {domain}")
     return None
 
 def is_domain_labeled(domain: str) -> bool:
     domain = normalize_domain(domain)
-    return db.is_domain_classified(domain)
+    is_labeled = db.is_domain_classified(domain)
+    return is_labeled
 
 async def label_domain(domain: str) -> ClassificationResult:
     domain = normalize_domain(domain)
+    logger.info(f"Starting classification for domain: {domain}")
 
     if is_domain_labeled(domain):
+        logger.info(f"Domain {domain} is already labeled, skipping")
         return ClassificationResult(
             domain=domain,
             category="error",
@@ -193,6 +217,7 @@ async def label_domain(domain: str) -> ClassificationResult:
 
     result = get_scraped_data(domain)
     if result is None:
+        logger.warning(f"Domain {domain} not found in scraped data")
         return ClassificationResult(
             domain=domain,
             category="error",
@@ -204,9 +229,11 @@ async def label_domain(domain: str) -> ClassificationResult:
         text = result.get("text", "")
 
         if error or useless_text(text):
+            logger.info(f"Using fallback classification for {domain} (error: {error}, useless_text: {useless_text(text)})")
             classification = await classify_domain_fallback(domain)
             source = "qwen-fallback"
         else:
+            logger.info(f"Using text-based classification for {domain}")
             classification = await ask_qwen(result["text"], domain)
             source = "qwen"
 
@@ -221,11 +248,11 @@ async def label_domain(domain: str) -> ClassificationResult:
             last_classified=time.time()
         )
 
-        print(
-            f"[Labeled] {domain} -> {result_obj.category} "
-            f"subcategory: {result_obj.subcategory} "
-            f"confidence: {result_obj.confidence} "
-            f"explanation: {result_obj.explanation} ({source})"
+        logger.info(
+            f"Classified {domain} -> {result_obj.category} "
+            f"(subcategory: {result_obj.subcategory}, "
+            f"confidence: {result_obj.confidence}, "
+            f"source: {source})"
         )
 
         success = db.store_classification_results(
@@ -239,12 +266,16 @@ async def label_domain(domain: str) -> ClassificationResult:
         )
 
         if not success:
+            logger.error(f"Failed to store classification for {domain} in database")
             result_obj.error = "Failed to store classification in database"
+        else:
+            logger.debug(f"Successfully stored classification for {domain} in database")
         
         return result_obj
 
     except Exception as e:
         error_msg = str(e)
+        logger.error(f"Error classifying domain {domain}: {error_msg}")
 
         db.store_classification_results(
             domain=domain,
@@ -260,12 +291,16 @@ async def label_domain(domain: str) -> ClassificationResult:
         )
     
 async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
+    logger.info(f"Starting batch processing of {len(domains)} domains (batch_size: {batch_size}, max_concurrent: {max_concurrent})")
     await initialize_session()
     all_results = []
 
     for i in range(0, len(domains), batch_size):
         batch = domains[i:i + batch_size]
-        print(f"Processing batch {i//batch_size + 1}/{(len(domains) + batch_size - 1)//batch_size}")
+        batch_num = i//batch_size + 1
+        total_batches = (len(domains) + batch_size - 1)//batch_size
+
+        logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} domains)")
 
         semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -277,32 +312,39 @@ async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max
 
         for j, result in enumerate(batch_results):
             if isinstance(result, Exception):
+                logger.error(f"Exception processing domain {batch[j]}: {result}")
                 all_results.append(ClassificationResult(domain=batch[j], category="error", error=str(result)))
             else:
                 all_results.append(result)
         
+        logger.info(f"Completed batch {batch_num}/{total_batches}")
+        
         if i + batch_size < len(domains):
+            logger.debug("Sleeping 1 second between batches")
             await asyncio.sleep(1)
 
     await close_session()
+    logger.info(f"Completed processing all {len(domains)} domains")
     return all_results
 
 async def classify_unclassified_domains(limit: int = 100) -> list[ClassificationResult]:
+    logger.info(f"Getting unclassified domains (limit: {limit})")
     unclassified_domains = db.get_unclassified_domains(limit)
     domain_names = [d["domain"] for d in unclassified_domains]
 
     if not domain_names:
-        print("No unclassified domains found")
+        logger.info("No unclassified domains found")
         return []
     
-    print(f"Found {len(domain_names)} unclassified domains")
+    logger.info(f"Found {len(domain_names)} unclassified domains")
     return await label_domains_in_batches(domain_names)
 
 def get_classification_stats():
+    logger.info("Getting classification statistics")
     stats = db.get_classification_stats()
-    print(f"Classification stats:")
-    print(f"  Total domains: {stats['total_domains']}")
-    print(f"  Scraped domains: {stats['scraped_domains']}")
-    print(f"  Classified domains: {stats['classified_domains']}")
-    print(f"  Pending classification: {stats['pending_classification']}")
+    logger.info(f"Classification stats: "
+               f"Total: {stats['total_domains']}, "
+               f"Scraped: {stats['scraped_domains']}, "
+               f"Classified: {stats['classified_domains']}, "
+               f"Pending: {stats['pending_classification']}")
     return stats
