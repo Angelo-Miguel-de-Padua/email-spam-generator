@@ -167,10 +167,10 @@ class SupabaseClient:
             total_domains = total_result.count or 0
 
             classified_result = self.client.table("domain_labels").select("domain", count="exact").not_.is_("category", None).execute()
-            classified_domains = classified_result or 0
+            classified_domains = classified_result.count or 0
 
             scraped_result = self.client.table("domain_labels").select("domain", count="exact").not_.is_("scraped_text", None).execute()
-            scraped_domains = scraped_result or 0
+            scraped_domains = scraped_result.count or 0
 
             logger.debug(f"Classification stats: {total_domains} total, {scraped_domains} scraped, {classified_domains} classified")
 
@@ -188,3 +188,5 @@ class SupabaseClient:
                 "classified_domains": 0,
                 "pending_classification": 0
             }
+        
+db = SupabaseClient()
