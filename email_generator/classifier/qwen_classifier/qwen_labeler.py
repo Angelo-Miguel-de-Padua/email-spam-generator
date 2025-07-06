@@ -54,14 +54,19 @@ OLLAMA_MODEL_NAME = "qwen:7b-chat-q4_0"
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
 
 session = None
+session_lock = asyncio.Lock()
 
 async def initialize_session():
     global session
-    if session is None:
-        logger.info("Initializing HTTP Session")
-        session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=60),  
-            connector=aiohttp.TCPConnector(limit=100) 
+    if session is not None:
+        return
+    
+    async with session_lock:
+        if session is None:
+            logger.info("Initializing HTTP Session (locked)")
+            session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=60),
+                connector=aiohttp.TCPConnector(limit=100)
         )
 
 async def close_session():
