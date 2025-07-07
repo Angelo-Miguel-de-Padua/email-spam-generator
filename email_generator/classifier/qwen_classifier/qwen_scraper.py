@@ -111,8 +111,30 @@ class BrowserPool:
         self._browsers.clear()
         self._playwright = None
         self._initialized = False
+    
+class AdaptiveTimeoutManager:
+    def __init__(self, base_timeout: float = 15.0, max_timeout: float = 30.0):
+        self.base_timeout = base_timeout
+        self.max_timeout = max_timeout
+        self._domain_stats = {}
 
-MAX_REDIRECTS = 5
+    def get_timeout(self, domain: str) -> float:
+        stats = self._domain_stats.get(domain, {})
+        avg_response_time = stats.get('avg_response_time', 0)
+
+        if avg_response_time > 0:
+            timeout = min(avg_response_time * 3, self.max_timeout)
+            return max(timeout, self.base_timeout)
+        
+        return self.base_timeout
+    
+    def update_stats(self, domain: str, response_time: float):
+        if domain not in self._domain_stats:
+            self._domain_stats[domain] = {'avg_response_time': response_time, 'count': 1}
+        else:
+            stats = self._domain_stats[domain]
+            stats['avg_response_time'] = (stats['avg_response_time'] * stats['count'])
+            stats['count'] += 1
 
 def scraped_domains(domain: str) -> bool:
     return db.is_domain_scraped(domain)
