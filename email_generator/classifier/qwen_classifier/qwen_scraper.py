@@ -37,7 +37,7 @@ class ValidationInterface(Protocol):
 class RateLimitInterface(Protocol):
     def apply_rate_limit(self, domain: str) -> None: ...
     def get_adaptive_delay(self, had_error: bool, response_time: float = 0.0) -> float: ...
-    
+
 class BrowserPool:
     def __init__(self, pool_size: int = 3):
         self.pool_size = pool_size
@@ -149,252 +149,168 @@ class AdaptiveTimeoutManager:
             stats['avg_response_time'] = (stats['avg_response_time'] * stats['count'])
             stats['count'] += 1
 
-def scraped_domains(domain: str) -> bool:
-    return db.is_domain_scraped(domain)
-
-def store_scrape_results(result: ScrapeResult):
-    domain = result.domain
-    text = result.text
-    error = result.error
-
-    try:
-        success = db.store_scrape_results(domain, text, error)
-        if success:
-            logger.info(f"Successfully stored scrape results for {domain}")
-        else:
-            logger.warning(f"Failed to store scrape results for {domain}")
-    except Exception as e:
-        logger.error(f"Error storing scrape results for {domain}: {e}") 
-
-def validate_redirect_target(redirect_url: str, current_url: str) -> bool:
-    try:
-        if redirect_url.startswith(('/', '?', '#')):
-            absolute_url = urljoin(current_url, redirect_url)
-        elif redirect_url.startswith(('http://', 'https://')):
-            absolute_url = redirect_url
-        else:
-            return False
-
-        parsed = urlparse(absolute_url)
-
-        if not parsed.hostname:
-            return False
-        
-        normalized_domain = normalize_domain(parsed.hostname)
-
-        if not is_valid_domain(normalized_domain):
-            return False
-        
-        return check_domain_safety(normalized_domain)
+class WebScraper:
+    def __init__(
+        self,
+        storage: StorageInterface,
+        validator: ValidationInterface,
+        rate_limiter: RateLimitInterface,
+        browser_pool: Optional[BrowserPool] = None,
+        max_retries: int = 2
+    ):
+        self.storage = storage
+        self.validator = validator
+        self.rate_limiter = rate_limiter
+        self.browser_pool = browser_pool or BrowserPool()
+        self.timeout_manager = AdaptiveTimeoutManager()
+        self.max_retries = max_retries
+        self.max_redirects = 5
+        self.max_html_size = 1_000_000
     
-    except Exception:
-        return False
+    async def scrape_domain(self, domain: str) -> ScrapeResult:
+        normalized = self._normalize_domain(domain)
 
-async def try_scrape_protocol(url: str, normalized: str, protocol: str) -> ScrapeResult:
-    try:
-        async with get_browser_page() as page:
-            redirect_count = 0
-            redirect_exceeded = False
-            current_url = url
+        if not self.validator.is_valid_domain(normalized):
+            return ScrapeResult(normalized, "", "Invalid domain format")
+        
+        if self.storage.is_domain_scraped(normalized):
+            return ScrapeResult(normalized, "", "Already scraped", skipped=True)
+        
+        self.rate_limiter.apply_rate_limit(normalized)
 
-            def handle_response(response):
-                nonlocal redirect_count, redirect_exceeded, current_url
-
-                status = response.status
-                location = response.headers.get('location')
-
-                if status == 0:
-                    redirect_exceeded = True
-                    return
-                
-                if 300 <= status < 400 and location:
-                    redirect_count += 1
-
-                    if redirect_count > MAX_REDIRECTS:
-                        redirect_exceeded = True
-                        return
-                    
-                    if not validate_redirect_target(location, current_url):
-                        redirect_exceeded = True
-                        return
-                    
-                    if location.startswith(('http://', 'https://')):
-                        new_url = location
-                    else:
-                        new_url = urljoin(current_url, location)
-
-                    parsed_redirect = urlparse(new_url)
-                    if parsed_redirect.hostname:
-                        redirect_domain = normalize_domain(parsed_redirect.hostname)
-                        if not check_domain_safety(redirect_domain):
-                            redirect_exceeded = True
-                            return
-
-                    current_url = new_url
-                            
-            page.on("response", handle_response)
-
+        if not self.validator.check_domain_safety(normalized):
+            result = ScrapeResult(normalized, "", "Blocked: Domain resolved to dangerous internal or metadata IP")
+            self._store_result(result)
+            return result
+        
+        if not self.validator.is_scraping_allowed(normalized):
+            result = ScrapeResult(normalized, "", "Blocked: Disallowed by robots.txt")
+            self._store_result(result)
+            return result
+        
+        for attempt in range(self.max_retries + 1):
             try:
-                start_time = asyncio.get_event_loop().time()
-                await page.goto(url, timeout=10000)
+                result = await self._scrape_with_protocols(normalized)
+                if result.error is None:
+                    self._store_result(result)
+                    return result
+                
+                if attempt == self.max_retries():
+                    self._store_result(result)
+                    return result
+                
+                await asyncio.sleep(2 ** attempt)
+            
+            except Exception as e:
+                if attempt == self.max_retries:
+                    result = ScrapeResult(normalized, "", f"Scraping failed after {self.max_retries + 1} attempts: {str(e)}")
+                    self._store_result(result)
+                    return result
+                
+                await asyncio.sleep(2 ** attempt)
+        
+        result = ScrapeResult(normalized, "", "Unexpected error: max retries exceeded")
+        self._store_result(result)
+        return result
+    
+    async def _scrape_with_protocols(self, domain: str) -> ScrapeResult:
+        failed_attempts = []
+
+        for protocol in ["https", "http"]:
+            url = f"{protocol}://{domain}"
+            result = await self._scrape_url(url, domain, protocol)
+
+            if result.error is None:
+                return result
+            else:
+                failed_attempts.append(f"{protocol.upper()}: {result.error}")
+
+        return ScrapeResult(
+            domain,
+            "",
+            f"Both protocols failed - {'; '.join(failed_attempts)}"
+        )
+    
+    async def _scrape_url(self, url: str, domain: str, protocol: str) -> ScrapeResult:
+        timeout = self.timeout_manager.get_timeout(domain)
+        start_time = asyncio.get_event_loop().time()
+
+        try:
+            async with self.browser_pool.get_page() as page:
+                redirect_count = 0
+                current_url = url
+
+                def handle_response(response):
+                    nonlocal redirect_count, current_url
+
+                    if 300 <= response.status < 400:
+                        redirect_count += 1
+                        if redirect_count > self.max_redirects:
+                            raise Exception(f"Too many redirects (>{self.max_redirects})")
+                        
+                        location = response.headers.get('location')
+                        if location:
+                            current_url = urljoin(current_url, location)
+                
+                page.on("response", handle_response)
+
+                await page.goto(url, timeout=timeout * 1000)
+
+                html = await page.content()
                 response_time = asyncio.get_event_loop().time() - start_time
 
-                if redirect_exceeded:
+                self.timeout_manager.update_stats(domain, response_time)
+
+                delay = self.rate_limiter.get_adaptive_delay(False, response_time)
+                await asyncio.sleep(delay)
+
+                if len(html) > self.max_html_size:
+                    return ScrapeResult(domain, "", f"{protocol.upper()} HTML too large ({len(html)} bytes)")
+                
+                if len(html) < 300:
+                    return ScrapeResult(domain, "", f"{protocol.upper()} content too small")
+                
+                if any(keyword in html.lower() for keyword in {"captcha", "cloudflare", "bot detection"}):
+                    return ScrapeResult(domain, "", f"{protocol.upper()} suspicious or protected content")
+                
+                try:
+                    soup = BeautifulSoup(html, "html.parser")
+                    extracted_text = extract_text(soup)
+
                     return ScrapeResult(
-                        domain=normalized,
-                        text="",
-                        error=f"{protocol.upper()} timeout after 10000ms",
+                        domain,
+                        extracted_text,
+                        None,
                         response_time=response_time,
                         final_url=current_url
                     )
-                        
-                await page.wait_for_timeout(random.randint(1000, 2500))
-                await page.mouse.wheel(0, 3000)
-                html = await page.content()
+                
+                except Exception as e:
+                    return ScrapeResult(domain, "", f"{protocol.upper()} text extraction failed: {str(e)}")
 
-                await asyncio.sleep(get_adaptive_delay(had_error=False, response_time=response_time))
+        except PlaywrightTimeout:
+            delay = self.rate_limiter.get_adaptive_delay(True)
+            await asyncio.sleep(delay)
+            return ScrapeResult(domain, "", f"{protocol.upper()} timeout after {timeout}s")
 
-                max_html_size = 1_000_000 # 1MB
-                if len(html) > max_html_size:
-                    return ScrapeResult(
-                        domain=normalized,
-                        text="",
-                        error=f"{protocol.upper()} HTML too large ({len(html)} bytes)",
-                        response_time=response_time,
-                        final_url=current_url
-                    )
+        except Exception as e:
+            delay = self.rate_limiter.get_adaptive_delay(True)
+            await asyncio.sleep(delay)
+            return ScrapeResult(domain, "", f"{protocol.upper()} error: {str(e)}")
 
-            except PlaywrightTimeout:
-                await asyncio.sleep(get_adaptive_delay(had_error=True))
-                return ScrapeResult(
-                    domain=normalized,
-                    text="",
-                    error=f"{protocol.upper()} timeout after 10000ms",
-                    response_time=response_time,
-                    final_url=current_url
-                )
-            except Exception as e:
-                await asyncio.sleep(get_adaptive_delay(had_error=True))
-                if redirect_exceeded:
-                    return ScrapeResult(
-                        domain=normalized,
-                        text="",
-                        error=f"{protocol.upper()} too many redirects (>{MAX_REDIRECTS})",
-                        response_time=response_time,
-                        final_url=current_url
-                    )
-                else:
-                    return ScrapeResult(
-                        domain=normalized,
-                        text="",
-                        error=f"{protocol.upper()} page load error: {str(e)}",
-                        response_time=response_time,
-                        final_url=current_url
-                    )
+    def _normalize_domain(self, domain: str) -> str:
+        return normalize_domain(domain)
 
-            if len(html) < 300 or "captcha" in html.lower() or "cloudflare" in html.lower():
-                return ScrapeResult(
-                    domain=normalized,
-                    text="",
-                    error=f"{protocol.upper()} suspicious or protected content",
-                    response_time=response_time,
-                    final_url=current_url
-                )
+    def _store_result(self, result: ScrapeResult):
+        try:
+            success = self.storage.store_scrape_results(result.domain, result.text, result.error)
+            if success:
+                logger.info(f"Successfully stored scrape results for {result.domain}")
+            else:
+                logger.warning(f"Failed to store scrape results for {result.domain}")
+        except Exception as e:
+            logger.error(f"Error storing scrape results for {result.domain}: {e}")
 
-            try:
-                soup = BeautifulSoup(html, "html.parser")
-                extracted_text = extract_text(soup)
-            except Exception as e:
-                extracted_text = ""
-                return ScrapeResult(
-                    domain=normalized,
-                    text=extracted_text,
-                    error=f"{protocol.upper()} text extraction failed: {str(e)}",
-                    response_time=response_time,
-                    final_url=current_url
-                )
-            
-            return ScrapeResult(
-                domain=normalized,
-                text=extracted_text,
-                error=None,
-                response_time=response_time,
-                final_url=current_url
-            )
+    async def close(self):
+        await self.browser_pool.close() 
 
-    except Exception as e:
-        return ScrapeResult(
-            domain=normalized,
-            text="",
-            error=f"{protocol.upper()} browser error: {str(e)}",
-            response_time=0.0,
-            final_url=url
-        )
-
-async def scrape_and_extract(domain: str) -> ScrapeResult:
-    normalized = normalize_domain(domain)
-
-    apply_rate_limit(normalized)
-
-    if not is_valid_domain(normalized):
-        result = ScrapeResult(
-            domain=normalized,
-            text="",
-            error="Invalid domain format"
-        )
-        store_scrape_results(result)
-        return result
-
-    if scraped_domains(normalized):
-        return ScrapeResult(
-        domain=normalized,
-        text="",
-        error="Already scraped",
-        skipped=True
-    )
-    
-    if not check_domain_safety(normalized):
-        result = ScrapeResult(
-            domain=normalized,
-            text="",
-            error="Blocked: Domain resolved to dangerous internal or metadata IP"
-        )
-        store_scrape_results(result)
-        return result 
-
-    if not is_scraping_allowed(normalized):
-        result = ScrapeResult(
-            domain=normalized,
-            text="",
-            error="Blocked: Disallowed by robots.txt"
-        )
-        store_scrape_results(result)
-        return result
-
-    failed_attempts = []
-
-    for protocol in ["https", "http"]:
-        url = f"{protocol}://{normalized}"
-        result = await try_scrape_protocol(url, normalized, protocol)
-
-        if result.error is None:
-            store_scrape_results(result)
-            return result
-        else:
-            failed_attempts.append(f"{protocol.upper()}: {result.error}")
-    
-    result = ScrapeResult(
-        domain=normalized,
-        text="",
-        error=f"Both protocols failed - {': '.join(failed_attempts)}"
-    )
-    store_scrape_results(result)
-    return result
-
-def get_scraping_stats():
-    """Get scraping statistics from database"""
-    try:
-        return db.get_classification_stats()
-    except Exception as e:
-        logger.error(f"Error getting scraping stats: {e}")
-        return None       
