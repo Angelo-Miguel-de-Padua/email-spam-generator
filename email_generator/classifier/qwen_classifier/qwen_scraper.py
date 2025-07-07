@@ -85,7 +85,7 @@ class BrowserPool:
             user_agent=self._random_user_agent(),
             viewport={"width": 1440, "height": 900},
             locale="en-US",
-            timezone_id="America/New York"
+            timezone_id="America/New_York"
         )
 
         try:
@@ -98,7 +98,7 @@ class BrowserPool:
             await context.close()
             await self._available.put(browser)
 
-    def random_user_agent() -> str:
+    def _random_user_agent(self) -> str:
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
@@ -146,7 +146,7 @@ class AdaptiveTimeoutManager:
             self._domain_stats[domain] = {'avg_response_time': response_time, 'count': 1}
         else:
             stats = self._domain_stats[domain]
-            stats['avg_response_time'] = (stats['avg_response_time'] * stats['count'])
+            stats['avg_response_time'] = (stats['avg_response_time'] * stats['count'] + response_time) / (stats['count'] + 1)
             stats['count'] += 1
 
 class WebScraper:
@@ -195,7 +195,7 @@ class WebScraper:
                     self._store_result(result)
                     return result
                 
-                if attempt == self.max_retries():
+                if attempt == self.max_retries:
                     self._store_result(result)
                     return result
                 
