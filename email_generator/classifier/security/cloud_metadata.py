@@ -2,7 +2,7 @@ import ipaddress
 import socket
 import logging
 from typing import Set
-from .cloud_metadata import CloudMetadataUpdater
+from .ip_validator import CloudMetadataUpdater
 
 logger = logging.getLogger(__name__)
 

@@ -7,10 +7,7 @@ from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from typing import Optional, Protocol
 from email_generator.utils.text_extractor import extract_text
-from email_generator.classifier.security.cloud_metadata import check_domain_safety
-from email_generator.utils.domain_utils import is_valid_domain, normalize_domain
-from email_generator.utils.rate_limiter import apply_rate_limit, get_adaptive_delay
-from email_generator.utils.robots_util import is_scraping_allowed
+from email_generator.utils.domain_utils import normalize_domain
 from email_generator.database.supabase_client import db
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
@@ -303,7 +300,9 @@ class WebScraper:
 
     def _store_result(self, result: ScrapeResult):
         try:
-            success = self.storage.store_scrape_results(result.domain, result.text, result.error)
+            scraped_text = result.text or result.error
+
+            success = self.storage.store_scrape_results(result.domain, scraped_text, result.error)
             if success:
                 logger.info(f"Successfully stored scrape results for {result.domain}")
             else:

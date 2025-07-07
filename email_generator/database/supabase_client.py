@@ -1,10 +1,11 @@
 import os
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Set
 from supabase import create_client, Client
+from email_generator.utils.load_tranco import load_tranco_domains
 
 load_dotenv()
 
@@ -20,6 +21,9 @@ class SupabaseClient:
         
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
     
+    def __repr__(self) -> str:
+        return f"<SupabaseClient connected={bool(self.client)} url={self.supabase_url[:50]}...>"
+    
     def _safe_execute(self, query, error_msg: str, return_data: bool = True, retries: int = 3, delay: float = 1.0):
         for attempt in range(1, retries + 1):
             try:
@@ -27,14 +31,14 @@ class SupabaseClient:
                 return result.data if return_data else result
             except Exception as e:
                 logger.warning(f"{error_msg} (attempt {attempt}/{retries}): {e}")
-                if attempt > retries:
+                if attempt < retries:
                     time.sleep(delay)
                 else:
                     logger.error(f"{error_msg} - Failed after {retries} attempts")
                     return None if return_data else False
         
     def _get_current_timestamp(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
     
     def _get_domain_field(self, domain: str, field: str) -> Optional[Any]:
         result = self._safe_execute(
@@ -194,5 +198,117 @@ class SupabaseClient:
                 "classified_domains": 0,
                 "pending_classification": 0
             }
+    
+    def preload_domains(
+        self,
+        domains: List[str],
+        batch_size: int = 1000,
+        created_at: Optional[str] = None,
+        check_batch_size: int = 1000
+    ) -> Dict[str, Any]:
         
+        if not domains: 
+            return {
+                "success": False,
+                "inserted": 0,
+                "skipped": 0,
+                "total": 0,
+                "error": "No domains provided"
+            }
+        
+        logger.info(f"Starting preload of {len(domains)} domains")
+        
+        existing_domains: Set[str] = set()
+        try:
+            for i in range(0, len(domains), check_batch_size):
+                batch = domains[i:i + check_batch_size]
+                existing_result = (
+                    self.client
+                        .table("domain_labels")
+                        .select("domain")
+                        .in_("domain", domains)
+                        .execute()
+                )
+                if existing_result.data:
+                    batch_existing = {row["domain"] for row in existing_result.data}
+                    existing_domains.update(batch_existing)
+
+                if i % (check_batch_size * 10) == 0:
+                    logger.info(f"Checked {min(i + check_batch_size, len(domains))}/{len(domains)} for existence")
+
+            logger.info(f"Found {len(existing_domains)} existing domains out of {len(domains)}")
+        except Exception as e:
+            logger.warning(f"Could not check existing domains: {e}")
+            existing_domains = set()
+
+        new_domains = [domain for domain in domains if domain not in existing_domains]
+
+        if not new_domains:
+            logger.info("All domains already exist in database")
+            return {
+                "success": True,
+                "inserted": 0,
+                "skipped": len(existing_domains),
+                "total": len(domains),
+                "message": "All domains already exist"
+            }
+        
+        logger.info(f"Inserting {len(new_domains)} new domains")
+        timestamp = created_at or self._get_current_timestamp()
+        total_inserted = 0
+
+        for i in range(0, len(new_domains), batch_size):
+            batch = new_domains[i:i + batch_size]
+            batch_data = [{"domain": domain, "created_at": timestamp} for domain in batch]
+
+            try:
+                result = (
+                    self.client
+                        .table("domain_labels")
+                        .upsert(batch_data, count="exact")
+                        .execute()
+                )
+                inserted = result.count or 0
+                total_inserted += inserted
+                logger.info(f"Batch {i//batch_size + 1}: Inserted {inserted}/{len(batch)} domains")
+            except Exception as e:
+                logger.error(f"Batch {i//batch_size + 1} failed: {e}")
+                return {
+                    "success": False,
+                    "inserted": total_inserted,
+                    "skipped": len(domains) - total_inserted,
+                    "total": len(domains),
+                    "error": str(e)
+                }   
+    
+        logger.info(f"Successfully preloaded {total_inserted} domains")
+        return {
+            "success": True,
+            "inserted": total_inserted,
+            "skipped": len(existing_domains),
+            "total": len(domains),
+            "message": f"Successfully inserted {total_inserted} domains"
+        }
+    
+    def preload_tranco_domains(
+        self,
+        csv_path: str,
+        limit: int = 500,
+        batch_size: int = 1000,
+        created_at: Optional[str] = None
+    ) -> Dict[str, Any]:
+        
+        domains = load_tranco_domains(csv_path, limit)
+
+        if not domains:
+            return {
+                "success": False,
+                "inserted": 0,
+                "skipped": 0,
+                "total": 0,
+                "error": f"Failed to load domains from {csv_path}"
+            }
+        
+        return self.preload_domains(domains, batch_size, created_at)
+    
 db = SupabaseClient()
