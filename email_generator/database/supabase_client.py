@@ -3,7 +3,7 @@ import logging
 import time
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Set
 from supabase import create_client, Client
 
 load_dotenv()
@@ -197,5 +197,94 @@ class SupabaseClient:
                 "classified_domains": 0,
                 "pending_classification": 0
             }
+    
+    def preload_domains(
+        self,
+        domains: List[str],
+        batch_size: int = 1000,
+        created_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        
+        if not domains: 
+            logger.warning("No domains provided for preloading")
+            return {
+                "success": False,
+                "inserted": 0,
+                "skipped": 0,
+                "total": 0,
+                "error": "No domains provided"
+            }
+        
+        logger.info(f"Starting preload of {len(domains)} domains")
+
+        existing_domains: Set[str] = set()
+        try:
+            existing_result = (
+                self.client
+                    .table("domain_labels")
+                    .select("domain")
+                    .in_("domain", domains)
+                    .execute()
+            )
+            existing_domains = {row["domain"] for row in existing_result.data}
+            logger.info(f"Found {len(existing_domains)} existing domains out of {len(domains)}")
+        except Exception as e:
+            logger.warning(f"Could not check existing domains: {e}")
+
+        new_domains = [domain for domain in domains if domain not in existing_domains]
+
+        if not new_domains:
+            logger.info("All domains already exist in database")
+            return {
+                "success": True,
+                "inserted": 0,
+                "skipped": len(existing_domains),
+                "total": len(domains),
+                "message": "All domains already exist"
+            }
+        
+        logger.info(f"Inserting {len(new_domains)} new domains")
+
+        timestamp = created_at or self._get_current_timestamp()
+        total_inserted = 0
+
+        for i in range(0, len(new_domains), batch_size):
+            batch = new_domains[i:i + batch_size]
+
+            batch_data = [
+                {
+                    "domain": domain,
+                    "created_at": timestamp
+                }
+                for domain in batch
+            ]
+
+            result = self._safe_execute(
+                self.client.table("domain_labels").insert(batch_data),
+                f"Error inserting batch {i//batch_size + 1}",
+                return_data=False
+            )
+
+            if result:
+                total_inserted += len(batch)
+                logger.info(f"Inserted batch {i//batch_size + 1}/{(len(new_domains) + batch_size - 1)//batch_size}: {len(batch)} domains")
+            else:
+                logger.error(f"Failed to insert batch {i//batch_size + 1}")
+                return {
+                    "success": False,
+                    "inserted": total_inserted,
+                    "skipped": len(existing_domains),
+                    "total": len(domains),
+                    "error": f"Failed to insert batch {i//batch_size + 1}"
+                }                
+    
+        logger.info(f"Successfully preloaded {total_inserted} domains")
+        return {
+            "success": True,
+            "inserted": total_inserted,
+            "skipped": len(existing_domains),
+            "total": len(domains),
+            "message": f"Successfully inserted {total_inserted} domains"
+        }
         
 db = SupabaseClient()
