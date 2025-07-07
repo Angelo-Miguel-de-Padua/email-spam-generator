@@ -300,7 +300,9 @@ class WebScraper:
 
     def _store_result(self, result: ScrapeResult):
         try:
-            success = self.storage.store_scrape_results(result.domain, result.text, result.error)
+            scraped_text = result.text or result.error
+
+            success = self.storage.store_scrape_results(result.domain, scraped_text, result.error)
             if success:
                 logger.info(f"Successfully stored scrape results for {result.domain}")
             else:

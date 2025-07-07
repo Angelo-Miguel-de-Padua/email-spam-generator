@@ -1,7 +1,7 @@
 import os
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from typing import Optional, Any, Dict, List, Set
 from supabase import create_client, Client
@@ -38,7 +38,7 @@ class SupabaseClient:
                     return None if return_data else False
         
     def _get_current_timestamp(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
     
     def _get_domain_field(self, domain: str, field: str) -> Optional[Any]:
         result = self._safe_execute(
@@ -264,9 +264,8 @@ class SupabaseClient:
             try:
                 result = (
                     self.client
-                        .table
-                        .insert(batch_data, count="exact")
-                        .on_conflict("domain")
+                        .table("domain_labels")
+                        .upsert(batch_data, count="exact")
                         .execute()
                 )
                 inserted = result.count or 0
@@ -312,13 +311,4 @@ class SupabaseClient:
         
         return self.preload_domains(domains, batch_size, created_at)
     
-if __name__ == "__main__":
-    db = SupabaseClient()
-    result = db.preload_tranco_domains(
-        csv_path="resources/top-1m.csv", 
-        limit=50000,
-        batch_size=500
-    )
-    print(result)
-        
 db = SupabaseClient()

@@ -12,7 +12,6 @@ from email_generator.utils.prompt_template import build_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
 
-
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -171,10 +170,10 @@ def get_scraped_data(domain: str) -> dict | None:
     domain = normalize_domain(domain)
     domain_data = db.get_domain_data(domain)
 
-    if domain_data and domain_data.get("scraped_text"):
+    if domain_data and "scraped_text" in domain_data:
         return {
             "domain": domain,
-            "text": domain_data["scraped_text"],
+            "text": domain_data.get("scraped_text", ""),
             "error": domain_data.get("scrape_error")
         }
     logger.debug(f"No scraped data found for domain: {domain}")
