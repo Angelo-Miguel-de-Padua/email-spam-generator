@@ -1,9 +1,19 @@
 import asyncio
+import logging
 from email_generator.utils.load_tranco import load_tranco_domains
 from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.classifier.qwen_classifier.qwen_labeler import label_domain
 
 scrape_limit = 10
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('domain_classification.log'),
+        logging.StreamHandler()
+    ]
+)
 
 async def main():
     domains = load_tranco_domains("resources/top-1m.csv", limit=scrape_limit)

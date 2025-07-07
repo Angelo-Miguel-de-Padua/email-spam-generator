@@ -13,14 +13,6 @@ from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('domain_classification.log'),
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger(__name__)
 
 load_dotenv()

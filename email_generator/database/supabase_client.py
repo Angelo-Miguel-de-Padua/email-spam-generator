@@ -20,6 +20,9 @@ class SupabaseClient:
         
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
     
+    def __repr__(self) -> str:
+        return f"<SupabaseClient connected={bool(self.client)} url={self.supabase_url[:50]}...>"
+    
     def _safe_execute(self, query, error_msg: str, return_data: bool = True, retries: int = 3, delay: float = 1.0):
         for attempt in range(1, retries + 1):
             try:
