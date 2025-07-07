@@ -31,7 +31,7 @@ class SupabaseClient:
                 return result.data if return_data else result
             except Exception as e:
                 logger.warning(f"{error_msg} (attempt {attempt}/{retries}): {e}")
-                if attempt > retries:
+                if attempt < retries:
                     time.sleep(delay)
                 else:
                     logger.error(f"{error_msg} - Failed after {retries} attempts")
@@ -204,10 +204,10 @@ class SupabaseClient:
         domains: List[str],
         batch_size: int = 1000,
         created_at: Optional[str] = None,
+        check_batch_size: int = 1000
     ) -> Dict[str, Any]:
         
         if not domains: 
-            logger.warning("No domains provided for preloading")
             return {
                 "success": False,
                 "inserted": 0,
@@ -217,20 +217,29 @@ class SupabaseClient:
             }
         
         logger.info(f"Starting preload of {len(domains)} domains")
-
+        
         existing_domains: Set[str] = set()
         try:
-            existing_result = (
-                self.client
-                    .table("domain_labels")
-                    .select("domain")
-                    .in_("domain", domains)
-                    .execute()
-            )
-            existing_domains = {row["domain"] for row in existing_result.data}
+            for i in range(0, len(domains), check_batch_size):
+                batch = domains[i:i + check_batch_size]
+                existing_result = (
+                    self.client
+                        .table("domain_labels")
+                        .select("domain")
+                        .in_("domain", domains)
+                        .execute()
+                )
+                if existing_result.data:
+                    batch_existing = {row["domain"] for row in existing_result.data}
+                    existing_domains.update(batch_existing)
+
+                if i % (check_batch_size * 10) == 0:
+                    logger.info(f"Checked {min(i + check_batch_size, len(domains))}/{len(domains)} for existence")
+
             logger.info(f"Found {len(existing_domains)} existing domains out of {len(domains)}")
         except Exception as e:
             logger.warning(f"Could not check existing domains: {e}")
+            existing_domains = set()
 
         new_domains = [domain for domain in domains if domain not in existing_domains]
 
@@ -245,39 +254,33 @@ class SupabaseClient:
             }
         
         logger.info(f"Inserting {len(new_domains)} new domains")
-
         timestamp = created_at or self._get_current_timestamp()
         total_inserted = 0
 
         for i in range(0, len(new_domains), batch_size):
             batch = new_domains[i:i + batch_size]
+            batch_data = [{"domain": domain, "created_at": timestamp} for domain in batch]
 
-            batch_data = [
-                {
-                    "domain": domain,
-                    "created_at": timestamp
-                }
-                for domain in batch
-            ]
-
-            result = self._safe_execute(
-                self.client.table("domain_labels").insert(batch_data),
-                f"Error inserting batch {i//batch_size + 1}",
-                return_data=False
-            )
-
-            if result:
-                total_inserted += len(batch)
-                logger.info(f"Inserted batch {i//batch_size + 1}/{(len(new_domains) + batch_size - 1)//batch_size}: {len(batch)} domains")
-            else:
-                logger.error(f"Failed to insert batch {i//batch_size + 1}")
+            try:
+                result = (
+                    self.client
+                        .table
+                        .insert(batch_data, count="exact")
+                        .on_conflict("domain")
+                        .execute()
+                )
+                inserted = result.count or 0
+                total_inserted += inserted
+                logger.info(f"Batch {i//batch_size + 1}: Inserted {inserted}/{len(batch)} domains")
+            except Exception as e:
+                logger.error(f"Batch {i//batch_size + 1} failed: {e}")
                 return {
                     "success": False,
                     "inserted": total_inserted,
-                    "skipped": len(existing_domains),
+                    "skipped": len(domains) - total_inserted,
                     "total": len(domains),
-                    "error": f"Failed to insert batch {i//batch_size + 1}"
-                }                
+                    "error": str(e)
+                }   
     
         logger.info(f"Successfully preloaded {total_inserted} domains")
         return {
@@ -308,5 +311,14 @@ class SupabaseClient:
             }
         
         return self.preload_domains(domains, batch_size, created_at)
+    
+if __name__ == "__main__":
+    db = SupabaseClient()
+    result = db.preload_tranco_domains(
+        csv_path="resources/top-1m.csv", 
+        limit=50000,
+        batch_size=500
+    )
+    print(result)
         
 db = SupabaseClient()
