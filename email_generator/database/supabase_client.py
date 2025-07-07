@@ -5,6 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from typing import Optional, Any, Dict, List, Set
 from supabase import create_client, Client
+from email_generator.utils.load_tranco import load_tranco_domains
 
 load_dotenv()
 
@@ -286,5 +287,26 @@ class SupabaseClient:
             "total": len(domains),
             "message": f"Successfully inserted {total_inserted} domains"
         }
+    
+    def preload_tranco_domains(
+        self,
+        csv_path: str,
+        limit: int = 500,
+        batch_size: int = 1000,
+        created_at: Optional[str] = None
+    ) -> Dict[str, Any]:
+        
+        domains = load_tranco_domains(csv_path, limit)
+
+        if not domains:
+            return {
+                "success": False,
+                "inserted": 0,
+                "skipped": 0,
+                "total": 0,
+                "error": f"Failed to load domains from {csv_path}"
+            }
+        
+        return self.preload_domains(domains, batch_size, created_at)
         
 db = SupabaseClient()
