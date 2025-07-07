@@ -1,8 +1,20 @@
 import asyncio
 import logging
+from email_generator.classifier.qwen_classifier.qwen_scraper import WebScraper
+from email_generator.database.supabase_client import db
+from email_generator.classifier.qwen_classifier.interfaces import DefaultValidator, DefaultRateLimiter
 from email_generator.utils.load_tranco import load_tranco_domains
 from email_generator.classifier.qwen_classifier.qwen_scraper import scrape_and_extract
 from email_generator.classifier.qwen_classifier.qwen_labeler import label_domain
+
+validator = DefaultValidator()
+rate_limiter = DefaultRateLimiter()
+
+scraper = WebScraper(
+    storage=db,
+    validator=validator,
+    rate_limiter=rate_limiter
+)
 
 scrape_limit = 10
 
