@@ -24,27 +24,27 @@ scraper = WebScraper(
     rate_limiter=rate_limiter
 )
 
-SCRAPE_LIMIT = 500
+SCRAPE_LIMIT = 1
 
 def scrape_and_extract(domain: str):
     scraper.scrape_domain(domain)
 
-async def main():
-    domains = load_tranco_domains("resources/top-1m.csv", limit=SCRAPE_LIMIT)
+def main():
+    validator = DefaultValidator()
+    rate_limiter = DefaultRateLimiter()
+    scraper = WebScraper(storage=db, validator=validator, rate_limiter=rate_limiter)
+
+    domains = load_tranco_domains("resources/top-1m.csv", limit=500)
 
     for i, domain in enumerate(domains, 1):
         try:
-            print(f"[{i}/{SCRAPE_LIMIT}] Processing: {domain}")
-            
-            scrape_and_extract(domain)  
-            await label_domain(domain)
+            print(f"[{i}/500] Scraping: {domain}")
+            scraper.scrape_domain(domain)
         except Exception as e:
-            logging.error(f"Failed to process {domain}: {e}")
+            logging.error(f"Failed to scrape {domain}: {e}")
 
-    scraper.close()  
+    scraper.close()
 
 if __name__ == "__main__":
-    if sys.platform.startswith("win"):
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    main()
 
-    asyncio.run(main())

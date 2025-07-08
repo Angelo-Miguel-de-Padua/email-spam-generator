@@ -191,7 +191,7 @@ async def label_domain(domain: str) -> ClassificationResult:
         return ClassificationResult(
             domain=domain,
             category="error",
-            error="Already labeled"
+            classifier_error="Already labeled"
         )
 
     result = get_scraped_data(domain)
@@ -200,7 +200,7 @@ async def label_domain(domain: str) -> ClassificationResult:
         return ClassificationResult(
             domain=domain,
             category="error",
-            error="Domain not found or not scraped"
+            classifier_error="Domain not found or not scraped"
         )
     
     try:

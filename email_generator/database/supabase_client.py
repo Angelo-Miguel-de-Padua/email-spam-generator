@@ -109,11 +109,12 @@ class SupabaseClient:
             confidence: int = 0, 
             explanation: str = None,
             source: str = None, 
-            text: str = None, 
-            error: str = None
+            scraped_text: str = None, 
+            scrape_error: str = None,
+            classifier_error: str = None
         ) -> bool:
         
-        flagged = bool(error)
+        flagged = bool(classifier_error or scrape_error)
 
         data = {
             "domain": domain,
@@ -123,16 +124,19 @@ class SupabaseClient:
             "flagged_for_review": flagged
         }
 
+        # Optional fields to include if present
         data.update({k: v for k, v in {
             "subcategory": subcategory,
             "explanation": explanation,
             "source": source,
-            "text": text,
-            "error": error
+            "scraped_text": scraped_text,
+            "scrape_error": scrape_error,
+            "classifier_error": classifier_error
         }.items() if v is not None})
 
-        if error:
-            logger.warning(f"Storing classification for {domain} with error: {error}")
+        if classifier_error or scrape_error:
+            logger.warning(f"Storing classification for {domain} with error(s): "
+                        f"{classifier_error or ''} {scrape_error or ''}".strip())
         
         result = self._safe_execute(
             self.client.table("domain_labels").upsert(data),
