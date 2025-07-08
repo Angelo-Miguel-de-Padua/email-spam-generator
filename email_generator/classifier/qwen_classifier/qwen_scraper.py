@@ -168,7 +168,7 @@ class WebScraper:
         self.browser_pool = browser_pool or BrowserPool()
         self.timeout_manager = AdaptiveTimeoutManager()
         self.max_retries = max_retries
-        self.max_redirects = 5
+        self.max_redirects = 3
         self.max_html_size = 1_000_000
     
     def scrape_domain(self, domain: str) -> ScrapeResult:
@@ -241,24 +241,20 @@ class WebScraper:
 
         try:
             with self.browser_pool.get_page() as page:
-                redirect_count = 0
+                redirects = []
                 current_url = url
 
                 def handle_response(response):
-                    nonlocal redirect_count, current_url
-
                     if 300 <= response.status < 400:
-                        redirect_count += 1
-                        if redirect_count > self.max_redirects:
-                            raise Exception(f"Too many redirects (>{self.max_redirects})")
+                        redirects.append(response)
                         
-                        location = response.headers.get('location')
-                        if location:
-                            current_url = urljoin(current_url, location)
-                
                 page.on("response", handle_response)
-
                 page.goto(url, timeout=timeout * 1000)
+
+                if len(redirects) > self.max_redirects:
+                    delay = self.rate_limiter.get_adaptive_delay(True)
+                    time.sleep(delay)
+                    return ScrapeResult(domain, "", f"{protocol.upper()} exceeded redirect limit (> {self.max_redirects})")
 
                 html = page.content()
                 response_time = time.time() - start_time
