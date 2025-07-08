@@ -204,15 +204,16 @@ async def label_domain(domain: str) -> ClassificationResult:
         )
     
     try:
-        error = result.get("error")
+        scrape_error = result.get("scrape_error")
         scraped_text = result.get("scraped_text", "")
 
-        if error or useless_text(scraped_text):
-            logger.info(f"Using fallback classification for {domain} (error: {error}, useless_text: {useless_text(scraped_text)})")
+        if scrape_error is not None:
+            classification = await classify_domain_fallback(domain)
+            source = "qwen-fallback"
+        elif useless_text(scraped_text):
             classification = await classify_domain_fallback(domain)
             source = "qwen-fallback"
         else:
-            logger.info(f"Using text-based classification for {domain}")
             classification = await ask_qwen(scraped_text, domain)
             source = "qwen"
         
