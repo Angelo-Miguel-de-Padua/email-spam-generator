@@ -26,22 +26,24 @@ scraper = WebScraper(
 
 SCRAPE_LIMIT = 500
 
-async def scrape_and_extract(domain: str):
-    await scraper.scrape_domain(domain)
+def scrape_and_extract(domain: str):
+    scraper.scrape_domain(domain)
 
 async def main():
     domains = load_tranco_domains("resources/top-1m.csv", limit=SCRAPE_LIMIT)
 
     for i, domain in enumerate(domains, 1):
-        print(f"[{i}/{SCRAPE_LIMIT}] Processing: {domain}")
-        
-        await scrape_and_extract(domain)  
-        await label_domain(domain)
+        try:
+            print(f"[{i}/{SCRAPE_LIMIT}] Processing: {domain}")
+            
+            scrape_and_extract(domain)  
+            await label_domain(domain)
+        except Exception as e:
+            logging.error(f"Failed to process {domain}: {e}")
 
-    await scraper.close()  
+    scraper.close()  
 
 if __name__ == "__main__":
-    import sys
     if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 

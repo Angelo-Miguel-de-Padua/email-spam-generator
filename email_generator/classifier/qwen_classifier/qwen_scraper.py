@@ -1,15 +1,15 @@
 import random
-import asyncio
 import logging
+import time
 from dataclasses import dataclass
-from contextlib import asynccontextmanager
+from contextlib import contextmanager
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
-from typing import Optional, Protocol
+from typing import Optional, Protocol, List
 from email_generator.utils.text_extractor import extract_text
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.database.supabase_client import db
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -39,19 +39,19 @@ class BrowserPool:
     def __init__(self, pool_size: int = 3):
         self.pool_size = pool_size
         self._browsers = []
-        self._available = asyncio.Queue()
+        self._available_browsers = []
         self._initialized = False
         self._playwright = None
 
-    async def initialize(self):
+    def initialize(self):
         if self._initialized:
             return
         
-        self._playwright = await async_playwright().start()
+        self._playwright = sync_playwright().start()
 
         try:
             for _ in range(self.pool_size):
-                browser = await self._playwright.chromium.launch(
+                browser = self._playwright.chromium.launch(
                     headless=True,
                     args=[
                     '--disable-web-security',
@@ -61,24 +61,29 @@ class BrowserPool:
                     '--disable-images',
                     '--disable-javascript', 
                     '--no-sandbox',
-                    '--disable-dev-shm-usage'
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled'
                     ]
                 )
                 self._browsers.append(browser)
-                await self._available.put(browser)
+                self._available_browsers.append(browser)
 
             self._initialized = True
         except Exception:
-            await self.close()
+            self.close()
             raise
 
-    @asynccontextmanager
-    async def get_page(self):
+    @contextmanager
+    def get_page(self):
         if not self._initialized:
-            await self.initialize()
-            
-        browser = await self._available.get()
-        context = await browser.new_context(
+            self.initialize()
+        
+        if not self._available_browsers:
+            browser = self._browsers[0]
+        else:
+            browser = self._available_browsers.pop(0)
+
+        context = browser.new_context(
             user_agent=self._random_user_agent(),
             viewport={"width": 1440, "height": 900},
             locale="en-US",
@@ -86,14 +91,15 @@ class BrowserPool:
         )
 
         try:
-            page = await context.new_page()
+            page = context.new_page()
             try:
                 yield page
             finally:
-                await page.close()
+                page.close()
         finally:
-            await context.close()
-            await self._available.put(browser)
+            context.close()
+            if browser not in self._available_browsers:
+                self._available_browsers.append(browser)
 
     def _random_user_agent(self) -> str:
         user_agents = [
@@ -105,20 +111,21 @@ class BrowserPool:
         ]
         return random.choice(user_agents)
         
-    async def close(self):
+    def close(self):
         for browser in self._browsers:
             try:
-                await browser.close()
+                browser.close()
             except Exception as e:
                 logger.warning(f"Error closing browser: {e}")
             
         if self._playwright:
             try:
-                await self._playwright.stop()
+                self._playwright.stop()
             except Exception as e:
                 logger.warning(f"Error stopping playwright: {e}")
             
         self._browsers.clear()
+        self._available_browsers.clear()
         self._playwright = None
         self._initialized = False
     
@@ -164,7 +171,7 @@ class WebScraper:
         self.max_redirects = 5
         self.max_html_size = 1_000_000
     
-    async def scrape_domain(self, domain: str) -> ScrapeResult:
+    def scrape_domain(self, domain: str) -> ScrapeResult:
         normalized = self._normalize_domain(domain)
 
         if not self.validator.is_valid_domain(normalized):
@@ -187,7 +194,7 @@ class WebScraper:
         
         for attempt in range(self.max_retries + 1):
             try:
-                result = await self._scrape_with_protocols(normalized)
+                result = self._scrape_with_protocols(normalized)
                 if result.error is None:
                     self._store_result(result)
                     return result
@@ -196,7 +203,7 @@ class WebScraper:
                     self._store_result(result)
                     return result
                 
-                await asyncio.sleep(2 ** attempt)
+                time.sleep(2 ** attempt)
             
             except Exception as e:
                 if attempt == self.max_retries:
@@ -204,18 +211,18 @@ class WebScraper:
                     self._store_result(result)
                     return result
                 
-                await asyncio.sleep(2 ** attempt)
+                time.sleep(2 ** attempt)
         
         result = ScrapeResult(normalized, "", "Unexpected error: max retries exceeded")
         self._store_result(result)
         return result
     
-    async def _scrape_with_protocols(self, domain: str) -> ScrapeResult:
+    def _scrape_with_protocols(self, domain: str) -> ScrapeResult:
         failed_attempts = []
 
         for protocol in ["https", "http"]:
             url = f"{protocol}://{domain}"
-            result = await self._scrape_url(url, domain, protocol)
+            result = self._scrape_url(url, domain, protocol)
 
             if result.error is None:
                 return result
@@ -228,12 +235,12 @@ class WebScraper:
             f"Both protocols failed - {'; '.join(failed_attempts)}"
         )
     
-    async def _scrape_url(self, url: str, domain: str, protocol: str) -> ScrapeResult:
+    def _scrape_url(self, url: str, domain: str, protocol: str) -> ScrapeResult:
         timeout = self.timeout_manager.get_timeout(domain)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.time()
 
         try:
-            async with self.browser_pool.get_page() as page:
+            with self.browser_pool.get_page() as page:
                 redirect_count = 0
                 current_url = url
 
@@ -251,15 +258,15 @@ class WebScraper:
                 
                 page.on("response", handle_response)
 
-                await page.goto(url, timeout=timeout * 1000)
+                page.goto(url, timeout=timeout * 1000)
 
-                html = await page.content()
-                response_time = asyncio.get_event_loop().time() - start_time
+                html = page.content()
+                response_time = time.time() - start_time
 
                 self.timeout_manager.update_stats(domain, response_time)
 
                 delay = self.rate_limiter.get_adaptive_delay(False, response_time)
-                await asyncio.sleep(delay)
+                time.sleep(delay)
 
                 if len(html) > self.max_html_size:
                     return ScrapeResult(domain, "", f"{protocol.upper()} HTML too large ({len(html)} bytes)")
@@ -267,12 +274,19 @@ class WebScraper:
                 if len(html) < 300:
                     return ScrapeResult(domain, "", f"{protocol.upper()} content too small")
                 
-                if any(keyword in html.lower() for keyword in {"captcha", "cloudflare", "bot detection"}):
-                    return ScrapeResult(domain, "", f"{protocol.upper()} suspicious or protected content")
+                html_lower = html.lower()
+                blocking_keywords = ["captcha", "cloudflare", "bot detection", "access denied", "blocked"]
+
+                for keyword in blocking_keywords:
+                    if keyword in html_lower:
+                        return ScrapeResult(domain, "", f"{protocol.upper()} suspicious or protected content: {keyword}")
                 
                 try:
                     soup = BeautifulSoup(html, "html.parser")
                     extracted_text = extract_text(soup)
+
+                    if not extracted_text or len(extracted_text.strip()) < 100: 
+                        return ScrapeResult(domain, "", f"{protocol.upper()} insufficient text content extracted")
 
                     return ScrapeResult(
                         domain,
@@ -287,13 +301,26 @@ class WebScraper:
 
         except PlaywrightTimeout:
             delay = self.rate_limiter.get_adaptive_delay(True)
-            await asyncio.sleep(delay)
+            time.sleep(delay)
             return ScrapeResult(domain, "", f"{protocol.upper()} timeout after {timeout}s")
 
         except Exception as e:
             delay = self.rate_limiter.get_adaptive_delay(True)
-            await asyncio.sleep(delay)
-            return ScrapeResult(domain, "", f"{protocol.upper()} error: {str(e)}")
+            time.sleep(delay)
+            error_msg = str(e).lower()
+
+            if "net::err_name_not_resolved" in error_msg:
+                return ScrapeResult(domain, "", f"{protocol.upper()} domain not found: {domain}")
+            elif "net::err_connection_refused" in error_msg:
+                return ScrapeResult(domain, "", f"{protocol.upper()} connection refused by {domain}")
+            elif "net::err_connection_timed_out" in error_msg:
+                return ScrapeResult(domain, "", f"{protocol.upper()} connection timeout to {domain}")
+            elif "net::err_ssl_protocol_error" in error_msg:
+                return ScrapeResult(domain, "", f"{protocol.upper()} SSL protocol error for {domain}")
+            elif "net::err_cert_authority_invalid" in error_msg:
+                return ScrapeResult(domain, "", f"{protocol.upper()} invalid SSL certificate for {domain}")
+            else:
+                return ScrapeResult(domain, "", f"{protocol.upper()} error: {str(e)}")
 
     def _normalize_domain(self, domain: str) -> str:
         return normalize_domain(domain)
@@ -309,7 +336,36 @@ class WebScraper:
                 logger.warning(f"Failed to store scrape results for {result.domain}")
         except Exception as e:
             logger.error(f"Error storing scrape results for {result.domain}: {e}")
+    
+    def scrape_batch(self, domains: List[str]) -> List[ScrapeResult]:
+        results = []
+        total = len(domains)
 
-    async def close(self):
-        await self.browser_pool.close() 
+        for i, domain in enumerate(domains, 1):
+            try:
+                result = self.scrape_domain(domain)
+                results.append(result)
+
+                if result.error:
+                    logger.warning(f"Failed to scrape {domain}: {result.error}")
+                else:
+                    logger.info(f"Successfully scraped {domain} ({len(result.text)} characters)")
+            except Exception as e:
+                logger.error(f"Unexpected error processing domain {domain}: {e}")
+                error_result = ScrapeResult(domain, "", f"Processing error: {str(e)}")
+                results.append(error_result)
+
+        return results
+
+    def close(self):
+        try:
+            self.browser_pool.close()
+        except Exception as e:
+            logger.error(f"Error closing browser pool: {e}")
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
