@@ -24,8 +24,7 @@ class ClassificationResult:
     confidence: int = 0
     explanation: str = ""
     source: str = ""
-    text: str = ""
-    error: Optional[str] = None
+    classifier_error: Optional[str] = None
     last_classified: Optional[float] = None
 
     def to_dict(self):
@@ -36,9 +35,8 @@ class ClassificationResult:
             "confidence": self.confidence,
             "explanation": self.explanation,
             "source": self.source,
-            "text": self.text,
             "last_classified": self.last_classified or time.time(),
-            **({"error": self.error} if self.error else {})
+            **({"classifier_error": self.classifier_error} if self.classifier_error else {})
         }
 
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME")
@@ -173,7 +171,7 @@ def get_scraped_data(domain: str) -> dict | None:
     if domain_data and "scraped_text" in domain_data:
         return {
             "domain": domain,
-            "text": domain_data.get("scraped_text", ""),
+            "scraped_text": domain_data["scraped_text"],
             "error": domain_data.get("scrape_error")
         }
     logger.debug(f"No scraped data found for domain: {domain}")
@@ -207,15 +205,15 @@ async def label_domain(domain: str) -> ClassificationResult:
     
     try:
         error = result.get("error")
-        text = result.get("text", "")
+        scraped_text = result.get("scraped_text", "")
 
-        if error or useless_text(text):
-            logger.info(f"Using fallback classification for {domain} (error: {error}, useless_text: {useless_text(text)})")
+        if error or useless_text(scraped_text):
+            logger.info(f"Using fallback classification for {domain} (error: {error}, useless_text: {useless_text(scraped_text)})")
             classification = await classify_domain_fallback(domain)
             source = "qwen-fallback"
         else:
             logger.info(f"Using text-based classification for {domain}")
-            classification = await ask_qwen(result["text"], domain)
+            classification = await ask_qwen(scraped_text, domain)
             source = "qwen"
         
         try:
@@ -225,7 +223,6 @@ async def label_domain(domain: str) -> ClassificationResult:
 
         result_obj = ClassificationResult(
             domain=domain,
-            text=text,
             category=classification["category"],
             subcategory=classification.get("subcategory", "unknown"),
             confidence=confidence,
@@ -248,12 +245,12 @@ async def label_domain(domain: str) -> ClassificationResult:
             confidence=result_obj.confidence,
             explanation=result_obj.explanation,
             source=source,
-            text=text
+            scraped_text=scraped_text
         )
 
         if not success:
             logger.error(f"Failed to store classification for {domain} in database")
-            result_obj.error = "Failed to store classification in database"
+            result_obj.classifier_error = "Failed to store classification in database"
         else:
             logger.debug(f"Successfully stored classification for {domain} in database")
         
@@ -266,13 +263,13 @@ async def label_domain(domain: str) -> ClassificationResult:
         db.store_classification_results(
             domain=domain,
             category="error",
-            error=error_msg
+            classifier_error=error_msg
         )
 
         return ClassificationResult(
             domain=domain,
             category="error",
-            error=error_msg,
+            classifier_error=error_msg,
             last_classified=time.time()
         )
     
@@ -299,7 +296,7 @@ async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max
         for j, result in enumerate(batch_results):
             if isinstance(result, Exception):
                 logger.error(f"Exception processing domain {batch[j]}: {result}")
-                all_results.append(ClassificationResult(domain=batch[j], category="error", error=str(result)))
+                all_results.append(ClassificationResult(domain=batch[j], category="error", classifier_error=str(result)))
             else:
                 all_results.append(result)
         
