@@ -1,6 +1,8 @@
 import random
 import logging
 import time
+import threading
+import queue
 from dataclasses import dataclass
 from contextlib import contextmanager
 from urllib.parse import urlparse, urljoin
@@ -39,54 +41,56 @@ class BrowserPool:
     def __init__(self, pool_size: int = 3):
         self.pool_size = pool_size
         self._browsers = []
-        self._available_browsers = []
+        self._browser_queue = queue.Queue()
         self._initialized = False
         self._playwright = None
+        self._init_lock = threading.Lock()
 
     def initialize(self):
-        if self._initialized:
-            return
-        
-        self._playwright = sync_playwright().start()
+        with self._init_lock:
+            if self._initialized:
+                return
+            
+            self._playwright = sync_playwright().start()
 
-        try:
-            for _ in range(self.pool_size):
-                browser = self._playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-extensions',
-                    '--disable-plugins',
-                    '--disable-images',
-                    '--disable-javascript', 
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled'
-                    ]
-                )
-                self._browsers.append(browser)
-                self._available_browsers.append(browser)
+            try:
+                for _ in range(self.pool_size):
+                    browser = self._playwright.chromium.launch(
+                        headless=True,
+                        args=[
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor',
+                        '--disable-extensions',
+                        '--disable-plugins',
+                        '--disable-images',
+                        '--disable-javascript', 
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled'
+                        ]
+                    )
+                    self._browsers.append(browser)
+                    self._browser_queue.put(browser)
 
-            self._initialized = True
-        except Exception:
-            self.close()
-            raise
+                self._initialized = True
+            except Exception:
+                self.close()
+                raise
 
     @contextmanager
     def get_page(self):
         if not self._initialized:
             self.initialize()
         
-        if not self._available_browsers:
-            browser = self._browsers[0]
-        else:
-            browser = self._available_browsers.pop(0)
-
+        try:
+            browser = self._browser_queue.get(timeout=30)
+        except queue.Empty:
+            raise RuntimeError("No browser available - all browsers are busy")
+        
         context = browser.new_context(
             user_agent=self._random_user_agent(),
             viewport={"width": 1440, "height": 900},
-            locale="en-US",
+            locale= "en-US",
             timezone_id="America/New_York"
         )
 
@@ -98,8 +102,7 @@ class BrowserPool:
                 page.close()
         finally:
             context.close()
-            if browser not in self._available_browsers:
-                self._available_browsers.append(browser)
+            self._browser_queue.put(browser)
 
     def _random_user_agent(self) -> str:
         user_agents = [
@@ -112,6 +115,13 @@ class BrowserPool:
         return random.choice(user_agents)
         
     def close(self):
+
+        while not self._browser_queue.empty():
+            try:
+                self._browser_queue.get_nowait()
+            except queue.Empty:
+                break
+
         for browser in self._browsers:
             try:
                 browser.close()
@@ -125,7 +135,6 @@ class BrowserPool:
                 logger.warning(f"Error stopping playwright: {e}")
             
         self._browsers.clear()
-        self._available_browsers.clear()
         self._playwright = None
         self._initialized = False
     
@@ -134,24 +143,27 @@ class AdaptiveTimeoutManager:
         self.base_timeout = base_timeout
         self.max_timeout = max_timeout
         self._domain_stats = {}
+        self._stats_lock = threading.Lock()
 
     def get_timeout(self, domain: str) -> float:
-        stats = self._domain_stats.get(domain, {})
-        avg_response_time = stats.get('avg_response_time', 0)
+        with self._stats_lock:
+            stats = self._domain_stats.get(domain, {})
+            avg_response_time = stats.get('avg_response_time', 0)
 
-        if avg_response_time > 0:
-            timeout = min(avg_response_time * 3, self.max_timeout)
-            return max(timeout, self.base_timeout)
-        
-        return self.base_timeout
+            if avg_response_time > 0:
+                timeout = min(avg_response_time * 3, self.max_timeout)
+                return max(timeout, self.base_timeout)
+            
+            return self.base_timeout
     
     def update_stats(self, domain: str, response_time: float):
-        if domain not in self._domain_stats:
-            self._domain_stats[domain] = {'avg_response_time': response_time, 'count': 1}
-        else:
-            stats = self._domain_stats[domain]
-            stats['avg_response_time'] = (stats['avg_response_time'] * stats['count'] + response_time) / (stats['count'] + 1)
-            stats['count'] += 1
+        with self._stats_lock:
+            if domain not in self._domain_stats:
+                self._domain_stats[domain] = {'avg_response_time': response_time, 'count': 1}
+            else:
+                stats = self._domain_stats[domain]
+                stats['avg_response_time'] = (stats['avg_response_time'] * stats['count'] + response_time) / (stats['count'] + 1)
+                stats['count'] += 1
 
 class WebScraper:
     def __init__(

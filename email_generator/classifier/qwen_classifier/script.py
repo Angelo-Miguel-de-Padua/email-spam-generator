@@ -1,6 +1,5 @@
-import asyncio
 import logging
-import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from email_generator.classifier.qwen_classifier.qwen_scraper import WebScraper
 from email_generator.database.supabase_client import db
 from email_generator.classifier.qwen_classifier.interfaces import DefaultValidator, DefaultRateLimiter
@@ -16,33 +15,38 @@ logging.basicConfig(
     ]
 )
 
-validator = DefaultValidator()
-rate_limiter = DefaultRateLimiter()
-scraper = WebScraper(
-    storage=db,
-    validator=validator,
-    rate_limiter=rate_limiter
-)
-
-SCRAPE_LIMIT = 1
-
-def scrape_and_extract(domain: str):
-    scraper.scrape_domain(domain)
+SCRAPE_LIMIT = 10000
+THREADS = 3
 
 def main():
     validator = DefaultValidator()
     rate_limiter = DefaultRateLimiter()
-    scraper = WebScraper(storage=db, validator=validator, rate_limiter=rate_limiter)
 
-    domains = load_tranco_domains("resources/top-1m.csv", limit=500)
+    scraper = WebScraper(
+        storage=db, 
+        validator=validator, 
+        rate_limiter=rate_limiter
+        )
 
-    for i, domain in enumerate(domains, 1):
+    domains = load_tranco_domains("resources/top-1m.csv", limit=SCRAPE_LIMIT)
+
+    def scrape_task(domain):
         try:
-            print(f"[{i}/500] Scraping: {domain}")
-            scraper.scrape_domain(domain)
+            result = scraper.scrape_domain(domain)
+            return domain, result.error
         except Exception as e:
-            logging.error(f"Failed to scrape {domain}: {e}")
+            return domain, str(e)
+    
+    with ThreadPoolExecutor(max_workers=THREADS) as executor:
+        futures = [executor.submit(scrape_task, domain) for domain in domains]
 
+        for i, future in enumerate(as_completed(futures), 1):
+            domain, error = future.result()
+            if error:
+                logging.warning(f"[{i}/{SCRAPE_LIMIT}] Failed: {domain} - {error}")
+            else:
+                logging.info(f"[{i}/{SCRAPE_LIMIT}] Success: {domain}")
+    
     scraper.close()
 
 if __name__ == "__main__":
