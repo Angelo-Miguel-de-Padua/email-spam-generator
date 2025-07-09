@@ -15,37 +15,36 @@ logging.basicConfig(
     ]
 )
 
-SCRAPE_LIMIT = 10000
-THREADS = 3
+MAX_DOMAINS = 10000
+THREADS = 5
+
+def scrape_task(scraper, domain):
+    result = scraper.scrape_domain(domain)
+    return domain, result.error
 
 def main():
     validator = DefaultValidator()
     rate_limiter = DefaultRateLimiter()
-
     scraper = WebScraper(
         storage=db, 
         validator=validator, 
         rate_limiter=rate_limiter
         )
 
-    domains = load_tranco_domains("resources/top-1m.csv", limit=SCRAPE_LIMIT)
+    domains = load_tranco_domains("resources/top-1m.csv", limit=MAX_DOMAINS)
 
-    def scrape_task(domain):
-        try:
-            result = scraper.scrape_domain(domain)
-            return domain, result.error
-        except Exception as e:
-            return domain, str(e)
-    
+    scraped_domains = db.get_scraped_domains_from_list(domains)
+    unscraped = [d for d in domains if d not in scraped_domains]
+
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
-        futures = [executor.submit(scrape_task, domain) for domain in domains]
+        futures = [executor.submit(scrape_task, scraper, d) for d in unscraped]
 
         for i, future in enumerate(as_completed(futures), 1):
             domain, error = future.result()
             if error:
-                logging.warning(f"[{i}/{SCRAPE_LIMIT}] Failed: {domain} - {error}")
+                logging.warning(f"[{i}/{len(unscraped)}] Failed: {domain} - {error}")
             else:
-                logging.info(f"[{i}/{SCRAPE_LIMIT}] Success: {domain}")
+                logging.info(f"[{i}/{len(unscraped)}] Success: {domain}")
     
     scraper.close()
 

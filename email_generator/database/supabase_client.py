@@ -72,6 +72,20 @@ class SupabaseClient:
         
         return has_category
     
+    def get_scraped_domains_from_list(self, domains: List[str]) -> Set[str]:
+        if not domains:
+            return set()
+        
+        result = self._safe_execute(
+            self.client.table("domain_labels")
+            .select("domain")
+            .in_("domain", domains)
+            .not_.is_("scraped_text", None),
+            "Error getting scraped domains from list"
+        )
+
+        return {row["domain"] for row in result} if result else set()
+    
     def get_domain_data(self, domain: str) -> Optional[Dict[str, Any]]:
         result = self._safe_execute(
                 self.client.table("domain_labels").select("*").eq("domain", domain),

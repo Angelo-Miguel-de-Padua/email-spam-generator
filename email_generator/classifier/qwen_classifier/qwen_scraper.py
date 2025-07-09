@@ -38,7 +38,7 @@ class RateLimitInterface(Protocol):
     def get_adaptive_delay(self, had_error: bool, response_time: float = 0.0) -> float: ...
 
 class BrowserPool:
-    def __init__(self, pool_size: int = 3):
+    def __init__(self, pool_size: int = 5):
         self.pool_size = pool_size
         self._browsers = []
         self._browser_queue = queue.Queue()
