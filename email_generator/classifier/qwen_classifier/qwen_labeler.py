@@ -49,7 +49,6 @@ async def initialize_session():
     global session
     async with session_lock:
         if session is None:
-            logger.info("Initializing HTTP Session (locked)")
             session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=60),
                 connector=aiohttp.TCPConnector(limit=100)
@@ -69,7 +68,6 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
 
     for attempt in range(retries + 1):
         try:
-            logger.debug(f"Calling Qwen API (attempt{attempt + 1}/{retries + 1})")
             async with session.post(
                 OLLAMA_ENDPOINT,
                 json={
@@ -80,7 +78,6 @@ async def call_qwen(prompt: str, retries: int = 2) -> str:
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    logger.debug("Qwen API Call Successful")
                     return data["response"]
                 else:
                     error_text = await response.text()
@@ -174,7 +171,6 @@ def get_scraped_data(domain: str) -> dict | None:
             "scraped_text": domain_data["scraped_text"],
             "error": domain_data.get("scrape_error")
         }
-    logger.debug(f"No scraped data found for domain: {domain}")
     return None
 
 def is_domain_labeled(domain: str) -> bool:
@@ -252,8 +248,6 @@ async def label_domain(domain: str) -> ClassificationResult:
         if not success:
             logger.error(f"Failed to store classification for {domain} in database")
             result_obj.classifier_error = "Failed to store classification in database"
-        else:
-            logger.debug(f"Successfully stored classification for {domain} in database")
         
         return result_obj
 

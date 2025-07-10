@@ -5,7 +5,6 @@ import threading
 import queue
 from dataclasses import dataclass
 from contextlib import contextmanager
-from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from typing import Optional, Protocol, List
 from email_generator.utils.text_extractor import extract_text
@@ -180,7 +179,7 @@ class WebScraper:
         self.browser_pool = browser_pool or BrowserPool()
         self.timeout_manager = AdaptiveTimeoutManager()
         self.max_retries = max_retries
-        self.max_redirects = 3
+        self.max_redirects = 2
         self.max_html_size = 1_000_000
     
     def scrape_domain(self, domain: str) -> ScrapeResult:

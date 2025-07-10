@@ -1,4 +1,6 @@
 import logging
+import threading
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email_generator.classifier.qwen_classifier.qwen_scraper import WebScraper
 from email_generator.database.supabase_client import db
@@ -17,36 +19,56 @@ logging.basicConfig(
 
 MAX_DOMAINS = 10000
 THREADS = 5
+stop_event = threading.Event()
 
-def scrape_task(scraper, domain):
-    result = scraper.scrape_domain(domain)
-    return domain, result.error
+active_scrapers = []
+
+def scrape_task(domain):
+    if stop_event.is_set():
+        return domain, "Aborted"
+    
+    scraper = WebScraper(
+        storage=db,
+        validator=DefaultValidator(),
+        rate_limiter=DefaultRateLimiter()
+    )
+    active_scrapers.append(scraper)
+
+    try:
+        result = scraper.scrape_domain(domain)
+        return domain, result.error
+    finally:
+        scraper.close()
+        active_scrapers.remove(scraper)
+
+def handle_shutdown(signum, frame):
+    logging.warning("Shutdown signal received. Stopping gracefully...")
+    stop_event.set()
 
 def main():
-    validator = DefaultValidator()
-    rate_limiter = DefaultRateLimiter()
-    scraper = WebScraper(
-        storage=db, 
-        validator=validator, 
-        rate_limiter=rate_limiter
-        )
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
 
     domains = load_tranco_domains("resources/top-1m.csv", limit=MAX_DOMAINS)
-
     scraped_domains = db.get_scraped_domains_from_list(domains)
     unscraped = [d for d in domains if d not in scraped_domains]
 
-    with ThreadPoolExecutor(max_workers=THREADS) as executor:
-        futures = [executor.submit(scrape_task, scraper, d) for d in unscraped]
+    try:
+        with ThreadPoolExecutor(max_workers=THREADS) as executor:
+            futures = [executor.submit(scrape_task, d) for d in unscraped]
 
-        for i, future in enumerate(as_completed(futures), 1):
-            domain, error = future.result()
-            if error:
-                logging.warning(f"[{i}/{len(unscraped)}] Failed: {domain} - {error}")
-            else:
-                logging.info(f"[{i}/{len(unscraped)}] Success: {domain}")
-    
-    scraper.close()
+            for i, future in enumerate(as_completed(futures), 1):
+                if stop_event.is_set():
+                    break
+
+                domain, error = future.result()
+                if error:
+                    logging.warning(f"[{i}/{len(unscraped)}] Failed: {domain} - {error}")
+                else:
+                    logging.info(f"[{i}/{len(unscraped)}] Success: {domain}")
+    finally:
+        for scraper in list(active_scrapers):
+            scraper.close()
 
 if __name__ == "__main__":
     main()
