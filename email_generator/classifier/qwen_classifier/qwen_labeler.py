@@ -317,6 +317,17 @@ async def classify_unclassified_domains(limit: int = 10000) -> list[Classificati
     logger.info(f"Found {len(domain_names)} unclassified domains")
     return await label_domains_in_batches(domain_names)
 
+async def retry_failed_classifications(limit: int = 1000, batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
+    failed = await db.retry_failed_domains(limit=limit)
+    domain_names = [d["domain"] for d in failed]
+
+    if not domain_names:
+        logger.info("No failed classifications to retry.")
+        return []
+
+    logger.info(f"Retrying classification for {len(domain_names)} domains")
+    return await label_domains_in_batches(domain_names, batch_size=batch_size, max_concurrent=max_concurrent)
+
 def get_classification_stats():
     logger.info("Getting classification statistics")
     stats = db.get_classification_stats()

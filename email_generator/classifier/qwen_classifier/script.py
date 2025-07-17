@@ -6,6 +6,7 @@ from email_generator.database.supabase_client import db
 from email_generator.classifier.qwen_classifier.qwen_labeler import (
     classify_unclassified_domains,
     get_classification_stats,
+    retry_failed_classifications, 
     close_session
 )
 
@@ -19,8 +20,9 @@ logging.basicConfig(
 )
 
 MAX_DOMAINS = 10000
-MAX_CONCURRENT = 3  
-BATCH_SIZE = 10     
+MAX_CONCURRENT = 3
+BATCH_SIZE = 10
+
 stop_event = asyncio.Event()
 
 async def handle_shutdown():
@@ -41,7 +43,11 @@ async def main():
         logging.info(f"Initial classification stats: {stats}")
 
         logging.info(f"Retrying failed classifications for up to {MAX_DOMAINS} domains...")
-        results = await db.retry_failed_domains(limit=MAX_DOMAINS)
+        results = await retry_failed_classifications(
+            limit=MAX_DOMAINS,
+            batch_size=BATCH_SIZE,
+            max_concurrent=MAX_CONCURRENT
+        )
 
         success_count = sum(1 for r in results if r.category != "error")
         error_count = len(results) - success_count
