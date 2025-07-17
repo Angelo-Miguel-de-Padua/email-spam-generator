@@ -338,4 +338,17 @@ class SupabaseClient:
         
         return self.preload_domains(domains, batch_size, created_at)
     
+    def retry_failed_domains(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        result = self._safe_execute(
+            self.client.table("domain_labels")
+            .select("*")
+            .not_.is_("scraped_text", None)
+            .in_("category", ["error", "unknown"])
+            .order("last_classified", desc=True)
+            .limit(limit),
+            "Error getting retryable domains"
+        )
+        return result or []
+    
 db = SupabaseClient()
+

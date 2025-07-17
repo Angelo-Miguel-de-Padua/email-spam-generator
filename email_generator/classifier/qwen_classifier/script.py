@@ -1,12 +1,13 @@
 import logging
-import threading
 import signal
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from email_generator.classifier.qwen_classifier.qwen_scraper import WebScraper
+import asyncio
+import sys
 from email_generator.database.supabase_client import db
-from email_generator.classifier.qwen_classifier.interfaces import DefaultValidator, DefaultRateLimiter
-from email_generator.utils.load_tranco import load_tranco_domains
-from email_generator.classifier.qwen_classifier.qwen_labeler import label_domain
+from email_generator.classifier.qwen_classifier.qwen_labeler import (
+    classify_unclassified_domains,
+    get_classification_stats,
+    close_session
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,58 +19,60 @@ logging.basicConfig(
 )
 
 MAX_DOMAINS = 10000
-THREADS = 5
-stop_event = threading.Event()
+MAX_CONCURRENT = 3  
+BATCH_SIZE = 10     
+stop_event = asyncio.Event()
 
-active_scrapers = []
-
-def scrape_task(domain):
-    if stop_event.is_set():
-        return domain, "Aborted"
-    
-    scraper = WebScraper(
-        storage=db,
-        validator=DefaultValidator(),
-        rate_limiter=DefaultRateLimiter()
-    )
-    active_scrapers.append(scraper)
-
-    try:
-        result = scraper.scrape_domain(domain)
-        return domain, result.error
-    finally:
-        scraper.close()
-        active_scrapers.remove(scraper)
-
-def handle_shutdown(signum, frame):
+async def handle_shutdown():
     logging.warning("Shutdown signal received. Stopping gracefully...")
     stop_event.set()
 
-def main():
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
+def signal_handler(signum, frame):
+    asyncio.create_task(handle_shutdown())
 
-    domains = load_tranco_domains("resources/top-1m.csv", limit=MAX_DOMAINS)
-    scraped_domains = db.get_scraped_domains_from_list(domains)
-    unscraped = [d for d in domains if d not in scraped_domains]
+async def main():
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        with ThreadPoolExecutor(max_workers=THREADS) as executor:
-            futures = [executor.submit(scrape_task, d) for d in unscraped]
+        logging.info("Starting retry pipeline for failed domain classifications...")
 
-            for i, future in enumerate(as_completed(futures), 1):
-                if stop_event.is_set():
-                    break
+        stats = get_classification_stats()
+        logging.info(f"Initial classification stats: {stats}")
 
-                domain, error = future.result()
-                if error:
-                    logging.warning(f"[{i}/{len(unscraped)}] Failed: {domain} - {error}")
-                else:
-                    logging.info(f"[{i}/{len(unscraped)}] Success: {domain}")
+        logging.info(f"Retrying failed classifications for up to {MAX_DOMAINS} domains...")
+        results = await db.retry_failed_domains(limit=MAX_DOMAINS)
+
+        success_count = sum(1 for r in results if r.category != "error")
+        error_count = len(results) - success_count
+
+        logging.info(f"Retry completed: {success_count} successful, {error_count} errors")
+
+        if results:
+            category_counts = {}
+            for result in results:
+                if result.category != "error":
+                    category_counts[result.category] = category_counts.get(result.category, 0) + 1
+
+            logging.info("Category breakdown:")
+            for category, count in sorted(category_counts.items()):
+                logging.info(f"  {category}: {count}")
+
+        final_stats = get_classification_stats()
+        logging.info(f"Final classification stats: {final_stats}")
+
+        logging.info("Retry pipeline completed successfully")
+
+    except KeyboardInterrupt:
+        logging.info("Process interrupted by user")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
     finally:
-        for scraper in list(active_scrapers):
-            scraper.close()
+        await close_session()
+        logging.info("Cleanup completed")
 
 if __name__ == "__main__":
-    main()
-
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    asyncio.run(main())

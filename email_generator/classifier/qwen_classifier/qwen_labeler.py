@@ -305,7 +305,7 @@ async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max
     logger.info(f"Completed processing all {len(domains)} domains")
     return all_results
 
-async def classify_unclassified_domains(limit: int = 100) -> list[ClassificationResult]:
+async def classify_unclassified_domains(limit: int = 10000) -> list[ClassificationResult]:
     logger.info(f"Getting unclassified domains (limit: {limit})")
     unclassified_domains = db.get_unclassified_domains(limit)
     domain_names = [d["domain"] for d in unclassified_domains]
