@@ -212,7 +212,7 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
         else:
             classification = await ask_qwen(scraped_text, domain)
             source = "qwen"
-        
+
         try:
             confidence = int(float(classification["confidence"]))
         except (ValueError, TypeError):
@@ -235,15 +235,19 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
             f"source: {source})"
         )
 
-        success = db.store_classification_results(
-            domain=domain,
-            category=result_obj.category,
-            subcategory=result_obj.subcategory,
-            confidence=result_obj.confidence,
-            explanation=result_obj.explanation,
-            source=source,
-            scraped_text=scraped_text
-        )
+        if result_obj.category not in ("error", "unknown"):
+            success = db.store_classification_results(
+                domain=domain,
+                category=result_obj.category,
+                subcategory=result_obj.subcategory,
+                confidence=result_obj.confidence,
+                explanation=result_obj.explanation,
+                source=source,
+                scraped_text=scraped_text
+            )
+        else:
+            logger.info(f"Skipping DB overwrite for {domain}: got {result_obj.category}")
+            success = True
 
         if not success:
             logger.error(f"Failed to store classification for {domain} in database")
@@ -255,11 +259,12 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
         error_msg = str(e)
         logger.error(f"Error classifying domain {domain}: {error_msg}")
 
-        db.store_classification_results(
-            domain=domain,
-            category="error",
-            classifier_error=error_msg
-        )
+        if not is_domain_labeled(domain):
+            db.store_classification_results(
+                domain=domain,
+                category="error",
+                classifier_error=error_msg
+            )
 
         return ClassificationResult(
             domain=domain,
@@ -267,6 +272,7 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
             classifier_error=error_msg,
             last_classified=time.time()
         )
+
     
 async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10, force: bool = False) -> list[ClassificationResult]:
     logger.info(f"Starting batch processing of {len(domains)} domains (batch_size: {batch_size}, max_concurrent: {max_concurrent})")
@@ -327,6 +333,31 @@ async def retry_failed_classifications(limit: int = 1000, batch_size: int = 20, 
 
     logger.info(f"Retrying classification for {len(domain_names)} domains")
     return await label_domains_in_batches(domain_names, batch_size=batch_size, max_concurrent=max_concurrent, force=True)
+
+async def retry_low_confidence_classifications(
+        limit: int = 1000,
+        batch_size: int = 20,
+        max_concurrent: int = 10,
+        min_confidence: int = 8
+) -> list[ClassificationResult]:
+    low_conf_domains = db.get_low_confidence_domains(limit=limit)
+    if not low_conf_domains:
+        logger.info("No low confidence domains to retry")
+        return []
+    
+    domain_names = [row["domain"] for row in low_conf_domains]
+
+    results = await label_domains_in_batches(domain_names, batch_size=batch_size, max_concurrent=max_concurrent, force=True)
+
+    final_results = []
+    for res in results:
+        if res.category in ("error", "unknown"):
+            continue
+        if res.confidence < min_confidence:
+            logger.info(f"{res.domain} still below confidence threshold ({res.confidence}), will retry later")
+        final_results.append(res)
+    
+    return final_results
 
 def get_classification_stats():
     logger.info("Getting classification statistics")
