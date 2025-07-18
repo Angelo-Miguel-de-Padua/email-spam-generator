@@ -178,11 +178,11 @@ def is_domain_labeled(domain: str) -> bool:
     is_labeled = db.is_domain_classified(domain)
     return is_labeled
 
-async def label_domain(domain: str) -> ClassificationResult:
+async def label_domain(domain: str, force: bool = False) -> ClassificationResult:
     domain = normalize_domain(domain)
     logger.info(f"Starting classification for domain: {domain}")
 
-    if is_domain_labeled(domain):
+    if not force and is_domain_labeled(domain):
         logger.info(f"Domain {domain} is already labeled, skipping")
         return ClassificationResult(
             domain=domain,
@@ -268,7 +268,7 @@ async def label_domain(domain: str) -> ClassificationResult:
             last_classified=time.time()
         )
     
-async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
+async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10, force: bool = False) -> list[ClassificationResult]:
     logger.info(f"Starting batch processing of {len(domains)} domains (batch_size: {batch_size}, max_concurrent: {max_concurrent})")
     await initialize_session()
     all_results = []
@@ -284,7 +284,7 @@ async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max
 
         async def process_domain(domain):
             async with semaphore:
-                return await label_domain(domain)
+                return await label_domain(domain, force=force)
             
         batch_results = await asyncio.gather(*[process_domain(d) for d in batch], return_exceptions=True)
 
@@ -318,7 +318,7 @@ async def classify_unclassified_domains(limit: int = 10000) -> list[Classificati
     return await label_domains_in_batches(domain_names)
 
 async def retry_failed_classifications(limit: int = 1000, batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
-    failed = await db.retry_failed_domains(limit=limit)
+    failed = db.retry_failed_domains(limit=limit)
     domain_names = [d["domain"] for d in failed]
 
     if not domain_names:
@@ -326,7 +326,7 @@ async def retry_failed_classifications(limit: int = 1000, batch_size: int = 20, 
         return []
 
     logger.info(f"Retrying classification for {len(domain_names)} domains")
-    return await label_domains_in_batches(domain_names, batch_size=batch_size, max_concurrent=max_concurrent)
+    return await label_domains_in_batches(domain_names, batch_size=batch_size, max_concurrent=max_concurrent, force=True)
 
 def get_classification_stats():
     logger.info("Getting classification statistics")

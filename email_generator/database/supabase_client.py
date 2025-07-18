@@ -350,5 +350,18 @@ class SupabaseClient:
         )
         return result or []
     
+    def get_low_confidence_domains(self, limit: int = 500) -> List[Dict[str, Any]]:
+        result = self._safe_execute(
+            self.client.table("domain_labels")
+            .select("*")
+            .not_.is_("scraped_text", None)
+            .lte("confidence", 7)
+            .not_.in_("category", ["unknown", "error"])
+            .order("last_classified", desc=True)
+            .limit(limit),
+            "Error getting low-confidence domains"
+        )
+        return result or []
+    
 db = SupabaseClient()
 
