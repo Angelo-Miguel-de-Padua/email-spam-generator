@@ -123,42 +123,79 @@ async def classify_domain_fallback(domain: str) -> dict:
     prompt = f"""
 You are a domain classification expert.
 
-Classify the website based on its domain name:
-Domain: {domain}
+Your task is to classify a domain based ONLY on its visible components.
+You MUST NOT guess, hallucinate, or infer meanings from words that are NOT explicitly present in the domain string.
 
-Choose only one of the following categories:
-ecommerce, education, news, jobs, finance, tech, travel, health, media, social, forum, sports, gaming, cloud, ai, crypto, security, real_estate, government, adult
+### VERY IMPORTANT RULES ###
+- Only use letters, tokens, or words that are ACTUALLY PRESENT in the domain.
+- Never imagine or hallucinate words that are not there. For example, "adult-machiko.com" does NOT contain "shop" — you cannot pretend it does.
+- Break the domain into visible parts first (e.g., "adult", "machiko"), and ONLY use those parts for classification.
+- Do NOT assume that common words like "shop", "hub", "pro", "zone", etc. always imply a specific category.
+- Be extremely cautious with branded-looking terms or Latin/foreign-derived words (e.g., 'libra', 'memoria', 'lystit').
+    - If a word has multiple possible meanings, DO NOT assume one interpretation without strong supporting context.
+    - Words like 'libra' and 'memoria' might look tech-related but could just as easily refer to memorial or unrelated services.
+- Do NOT rely on single-word cues unless their meaning is clearly unambiguous and well-known.
+- Only classify if multiple domain components clearly and consistently point to the same category.
+    - "techshop" → okay (tech + shop makes sense)
+    - "brainshop" or "machikoshop" → unclear → mark as unknown
+- If the domain’s purpose is ambiguous, possibly misleading, or only weakly inferred, mark it as unknown.
+- If you do NOT recognize the domain or cannot be confident about its purpose, respond with:
+  - category: unknown
+  - subcategory: unknown
+  - confidence: 0
 
-For each main category, also include a specific **subcategory**. Examples:
+Only assign a category if you are highly confident (confidence ≥ 8) and can clearly justify it using only the visible domain components.
+
+### Allowed Categories (choose ONE):
+ecommerce, education, news, jobs, finance, tech, travel, health, media, social,
+forum, sports, gaming, cloud, ai, crypto, security, real_estate, government, adult
+
+### Subcategory examples:
 - tech → "search", "hardware", "software", "developer tools"
 - ecommerce → "retail", "fashion", "electronics", "marketplace"
 - health → "medicine", "fitness", "mental health"
 - jobs → "job board", "freelancing", "company career page"
 - media → "video", "streaming", "music", "news"
 
-If you're unsure about the correct category or subcategory, respond with:
-- category: unknown
-- subcategory: unknown
-
-Respond strictly in this JSON format:
+### Response format (JSON only):
 {{
     "category": "<category>",
     "subcategory": "<subcategory>",
     "confidence": <1-10>,
-    "explanation": "<why this category>"
+    "explanation": "<brief and clear justification>"
 }}
+
+### Examples:
+Input domain: "adult-machiko.com"  
+→ Valid response:  
+{{
+    "category": "unknown",
+    "subcategory": "unknown",
+    "confidence": 0,
+    "explanation": "The domain does not contain any recognizable keywords or components to confidently classify it."
+}}
+
+Input domain: "tech-hardwarehub.com"  
+→ Valid response:  
+{{
+    "category": "tech",
+    "subcategory": "hardware",
+    "confidence": 9,
+    "explanation": "The domain contains 'tech' and 'hardware', which strongly suggest it is a technology-related hardware site."
+}}
+
+Now classify the domain: {domain}
 """
     try:
-        response = await call_qwen(prompt, retries=1) 
-        result = json.loads(response)
-        return result
-    except (json.JSONDecodeError, Exception) as e:
+        response = await call_qwen(prompt, retries=1)
+        return json.loads(response)
+    except Exception as e:
         logger.error(f"Fallback classification failed for {domain}: {e}")
         return {
             "category": "unknown",
             "subcategory": "unknown",
             "confidence": 0,
-            "explanation": f"Qwen fallback failed: {str(e)}"
+            "explanation": f"Fallback failed: {e}"
         }
 
 def get_scraped_data(domain: str) -> dict | None:
@@ -182,6 +219,7 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
     domain = normalize_domain(domain)
     logger.info(f"Starting classification for domain: {domain}")
 
+    # Skip if already labeled (unless forcing)
     if not force and is_domain_labeled(domain):
         logger.info(f"Domain {domain} is already labeled, skipping")
         return ClassificationResult(
@@ -190,90 +228,74 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
             classifier_error="Already labeled"
         )
 
+    # Get scraped content from DB
     result = get_scraped_data(domain)
     if result is None:
         logger.warning(f"Domain {domain} not found in scraped data")
-        return ClassificationResult(
+        classification_result = ClassificationResult(
             domain=domain,
             category="error",
             classifier_error="Domain not found or not scraped"
         )
-    
+        db.store_classification_results(
+            domain=classification_result.domain,
+            category=classification_result.category,
+            subcategory=classification_result.subcategory,
+            confidence=classification_result.confidence,
+            explanation=classification_result.explanation,
+            source=classification_result.source,
+            scraped_text=""
+        )
+        return classification_result
+
+    scrape_error = result.get("scrape_error")
+    scraped_text = result.get("scraped_text", "")
+
+    # Decide whether to use fallback or normal classification
+    if scrape_error is not None or "Both protocols failed" in scraped_text or useless_text(scraped_text):
+        classification = await classify_domain_fallback(domain)
+        source = "qwen-fallback"
+    else:
+        classification = await ask_qwen(scraped_text, domain)
+        source = "qwen"
+
     try:
-        scrape_error = result.get("scrape_error")
-        scraped_text = result.get("scraped_text", "")
+        confidence = int(float(classification.get("confidence", 0)))
+    except (ValueError, TypeError):
+        confidence = 0
 
-        if scrape_error is not None:
-            classification = await classify_domain_fallback(domain)
-            source = "qwen-fallback"
-        elif useless_text(scraped_text):
-            classification = await classify_domain_fallback(domain)
-            source = "qwen-fallback"
-        else:
-            classification = await ask_qwen(scraped_text, domain)
-            source = "qwen"
+    result_obj = ClassificationResult(
+        domain=domain,
+        category=classification.get("category", "unknown"),
+        subcategory=classification.get("subcategory", "unknown"),
+        confidence=confidence,
+        explanation=classification.get("explanation", ""),
+        source=source,
+        last_classified=time.time()
+    )
 
-        try:
-            confidence = int(float(classification["confidence"]))
-        except (ValueError, TypeError):
-            confidence = 0
+    logger.info(
+        f"Classified {domain} -> {result_obj.category} "
+        f"(subcategory: {result_obj.subcategory}, "
+        f"confidence: {result_obj.confidence}, "
+        f"source: {source})"
+    )
 
-        result_obj = ClassificationResult(
-            domain=domain,
-            category=classification["category"],
-            subcategory=classification.get("subcategory", "unknown"),
-            confidence=confidence,
-            explanation=classification.get("explanation", ""),
-            source=source,
-            last_classified=time.time()
-        )
+    success = db.store_classification_results(
+        domain=result_obj.domain,
+        category=result_obj.category,
+        subcategory=result_obj.subcategory,
+        confidence=result_obj.confidence,
+        explanation=result_obj.explanation,
+        source=result_obj.source,
+        scraped_text=scraped_text
+    )
+    if not success:
+        logger.error(f"Failed to store classification for {domain} in database")
+        result_obj.classifier_error = "Failed to store classification in database"
 
-        logger.info(
-            f"Classified {domain} -> {result_obj.category} "
-            f"(subcategory: {result_obj.subcategory}, "
-            f"confidence: {result_obj.confidence}, "
-            f"source: {source})"
-        )
+    return result_obj
 
-        if result_obj.category not in ("error", "unknown"):
-            success = db.store_classification_results(
-                domain=domain,
-                category=result_obj.category,
-                subcategory=result_obj.subcategory,
-                confidence=result_obj.confidence,
-                explanation=result_obj.explanation,
-                source=source,
-                scraped_text=scraped_text
-            )
-        else:
-            logger.info(f"Skipping DB overwrite for {domain}: got {result_obj.category}")
-            success = True
-
-        if not success:
-            logger.error(f"Failed to store classification for {domain} in database")
-            result_obj.classifier_error = "Failed to store classification in database"
-        
-        return result_obj
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Error classifying domain {domain}: {error_msg}")
-
-        if not is_domain_labeled(domain):
-            db.store_classification_results(
-                domain=domain,
-                category="error",
-                classifier_error=error_msg
-            )
-
-        return ClassificationResult(
-            domain=domain,
-            category="error",
-            classifier_error=error_msg,
-            last_classified=time.time()
-        )
-
-    
 async def label_domains_in_batches(domains: list[str], batch_size: int = 20, max_concurrent: int = 10, force: bool = False) -> list[ClassificationResult]:
     logger.info(f"Starting batch processing of {len(domains)} domains (batch_size: {batch_size}, max_concurrent: {max_concurrent})")
     await initialize_session()
@@ -324,15 +346,18 @@ async def classify_unclassified_domains(limit: int = 10000) -> list[Classificati
     return await label_domains_in_batches(domain_names)
 
 async def retry_failed_classifications(limit: int = 1000, batch_size: int = 20, max_concurrent: int = 10) -> list[ClassificationResult]:
-    failed = db.retry_failed_domains(limit=limit)
+    failed = db.retry_failed_domains(limit=limit)  # Now only protocol-failed
     domain_names = [d["domain"] for d in failed]
 
     if not domain_names:
-        logger.info("No failed classifications to retry.")
         return []
 
-    logger.info(f"Retrying classification for {len(domain_names)} domains")
-    return await label_domains_in_batches(domain_names, batch_size=batch_size, max_concurrent=max_concurrent, force=True)
+    return await label_domains_in_batches(
+        domain_names,
+        batch_size=batch_size,
+        max_concurrent=max_concurrent,
+        force=True  # Force reclassification
+    )
 
 async def retry_low_confidence_classifications(
         limit: int = 1000,
