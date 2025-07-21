@@ -4,9 +4,8 @@ import asyncio
 import sys
 from email_generator.database.supabase_client import db
 from email_generator.classifier.qwen_classifier.qwen_labeler import (
-    classify_unclassified_domains,
+    retry_failed_classifications,
     get_classification_stats,
-    retry_failed_classifications, 
     close_session
 )
 
@@ -20,8 +19,8 @@ logging.basicConfig(
 )
 
 MAX_DOMAINS = 10000
-MAX_CONCURRENT = 3
 BATCH_SIZE = 10
+MAX_CONCURRENT = 3
 
 stop_event = asyncio.Event()
 
@@ -37,37 +36,40 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        logging.info("Starting retry pipeline for failed domain classifications...")
+        logging.info("Retrying classification only for previously failed domains...")
 
-        stats = get_classification_stats()
-        logging.info(f"Initial classification stats: {stats}")
+        # Run the existing retry pipeline
+        stats_before = get_classification_stats()
+        logging.info(f"Initial classification stats: {stats_before}")
 
-        logging.info(f"Retrying failed classifications for up to {MAX_DOMAINS} domains...")
         results = await retry_failed_classifications(
             limit=MAX_DOMAINS,
             batch_size=BATCH_SIZE,
             max_concurrent=MAX_CONCURRENT
         )
 
+        if not results:
+            logging.info("No failed domains to retry.")
+            return
+
+        # Count successes vs errors
         success_count = sum(1 for r in results if r.category != "error")
         error_count = len(results) - success_count
-
         logging.info(f"Retry completed: {success_count} successful, {error_count} errors")
 
-        if results:
-            category_counts = {}
-            for result in results:
-                if result.category != "error":
-                    category_counts[result.category] = category_counts.get(result.category, 0) + 1
-
+        # Category breakdown
+        category_counts = {}
+        for r in results:
+            if r.category != "error":
+                category_counts[r.category] = category_counts.get(r.category, 0) + 1
+        if category_counts:
             logging.info("Category breakdown:")
             for category, count in sorted(category_counts.items()):
                 logging.info(f"  {category}: {count}")
 
-        final_stats = get_classification_stats()
-        logging.info(f"Final classification stats: {final_stats}")
-
-        logging.info("Retry pipeline completed successfully")
+        stats_after = get_classification_stats()
+        logging.info(f"Final classification stats: {stats_after}")
+        logging.info("Failed domain retry pipeline completed successfully")
 
     except KeyboardInterrupt:
         logging.info("Process interrupted by user")

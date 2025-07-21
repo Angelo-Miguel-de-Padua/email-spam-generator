@@ -342,13 +342,16 @@ class SupabaseClient:
         result = self._safe_execute(
             self.client.table("domain_labels")
             .select("*")
-            .not_.is_("scraped_text", None)
-            .in_("category", ["error", "unknown"])
+            .or_(
+                "explanation.ilike.%Fallback failed:%,"
+                "explanation.ilike.%Failed to parse json%"
+            )
             .order("last_classified", desc=True)
             .limit(limit),
-            "Error getting retryable domains"
+            "Error getting failed domains"
         )
         return result or []
+
     
     def get_low_confidence_domains(self, limit: int = 500) -> List[Dict[str, Any]]:
         result = self._safe_execute(

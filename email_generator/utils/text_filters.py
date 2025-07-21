@@ -9,7 +9,8 @@ def useless_text(text: str) -> bool:
     noisy_signals = [
         "error 404", "not found", "403 forbidden", "cloudflare", "captcha",
         "this site can’t be reached", "access denied", "nginx", "server error",
-        "that’s all we know", "please enable javascript", "502 bad gateway"
+        "that’s all we know", "please enable javascript", "502 bad gateway",
+        "https exceeded redirect limit", "http exceeded redirect limit"
     ]
 
     num_tokens = len(lowered.split())
