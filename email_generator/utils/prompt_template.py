@@ -4,7 +4,7 @@ CATEGORY_LIST = [
     "adult", "cloud", "ai", "crypto", "security", "government", "general"
 ]
 
-def build_prompt(text: str, domain: str) -> str:
+def label_domain_prompt(text: str, domain: str) -> str:
     categories = ", ".join(CATEGORY_LIST)
     return f"""
 You are an expert in domain classification.
@@ -52,3 +52,70 @@ Respond with **ONLY a single valid JSON object**, like this:
 }}
 """
 
+def fallback_label_domain_prompt(domain: str) -> str:
+    categories = ", ".join(CATEGORY_LIST)
+    return f"""
+You are a domain classification expert.
+
+Your task is to classify a domain based ONLY on its visible components.
+You MUST NOT guess, hallucinate, or infer meanings from words that are NOT explicitly present in the domain string.
+
+### VERY IMPORTANT RULES ###
+- Only use letters, tokens, or words that are ACTUALLY PRESENT in the domain.
+- Never imagine or hallucinate words that are not there. For example, "adult-machiko.com" does NOT contain "shop" — you cannot pretend it does.
+- Break the domain into visible parts first (e.g., "adult", "machiko"), and ONLY use those parts for classification.
+- Do NOT assume that common words like "shop", "hub", "pro", "zone", etc. always imply a specific category.
+- Be extremely cautious with branded-looking terms or Latin/foreign-derived words (e.g., 'libra', 'memoria', 'lystit').
+    - If a word has multiple possible meanings, DO NOT assume one interpretation without strong supporting context.
+    - Words like 'libra' and 'memoria' might look tech-related but could just as easily refer to memorial or unrelated services.
+- Do NOT rely on single-word cues unless their meaning is clearly unambiguous and well-known.
+- Only classify if multiple domain components clearly and consistently point to the same category.
+    - "techshop" → okay (tech + shop makes sense)
+    - "brainshop" or "machikoshop" → unclear → mark as unknown
+- If the domain’s purpose is ambiguous, possibly misleading, or only weakly inferred, mark it as unknown.
+- If you do NOT recognize the domain or cannot be confident about its purpose, respond with:
+  - category: unknown
+  - subcategory: unknown
+  - confidence: 0
+
+Only assign a category if you are highly confident (confidence ≥ 8) and can clearly justify it using only the visible domain components.
+
+### Allowed Categories (choose ONE):
+{categories}
+
+### Subcategory examples:
+- tech → "search", "hardware", "software", "developer tools"
+- ecommerce → "retail", "fashion", "electronics", "marketplace"
+- health → "medicine", "fitness", "mental health"
+- jobs → "job board", "freelancing", "company career page"
+- media → "video", "streaming", "music", "news"
+
+### Response format (JSON only):
+{{
+    "category": "<category>",
+    "subcategory": "<subcategory>",
+    "confidence": <1-10>,
+    "explanation": "<brief and clear justification>"
+}}
+
+### Examples:
+Input domain: "adult-machiko.com"  
+→ Valid response:  
+{{
+    "category": "unknown",
+    "subcategory": "unknown",
+    "confidence": 0,
+    "explanation": "The domain does not contain any recognizable keywords or components to confidently classify it."
+}}
+
+Input domain: "tech-hardwarehub.com"  
+→ Valid response:  
+{{
+    "category": "tech",
+    "subcategory": "hardware",
+    "confidence": 9,
+    "explanation": "The domain contains 'tech' and 'hardware', which strongly suggest it is a technology-related hardware site."
+}}
+
+Now classify the domain: {domain}
+"""
