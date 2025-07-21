@@ -366,5 +366,43 @@ class SupabaseClient:
         )
         return result or []
     
+    def export_classified_domains(self, output_file: str = "classified_domains.csv", batch_size: int = 1000) -> None:
+        """
+        Export all classified domains (domain, category, confidence, explanation) to a CSV file.
+        """
+        offset = 0
+        total_exported = 0
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            # Write CSV header
+            f.write("domain,category,confidence,explanation\n")
+
+            while True:
+                result = self._safe_execute(
+                    self.client.table("domain_labels")
+                    .select("domain, category, confidence, explanation")
+                    .not_.is_("category", None)
+                    .range(offset, offset + batch_size - 1),
+                    f"Error exporting classified domains (offset {offset})"
+                )
+
+                if not result:
+                    break
+
+                for row in result:
+                    domain = row["domain"]
+                    category = row.get("category", "")
+                    confidence = row.get("confidence", 0)
+                    explanation = row.get("explanation", "").replace("\n", " ").replace(",", ";")  # Clean CSV
+                    f.write(f"{domain},{category},{confidence},{explanation}\n")
+                    total_exported += 1
+
+                if len(result) < batch_size:
+                    break  # Reached the end
+                offset += batch_size
+
+        logger.info(f"Exported {total_exported} classified domains to {output_file}")
+
+    
 db = SupabaseClient()
 
