@@ -1,3 +1,5 @@
+from typing import Optional
+
 CATEGORY_LIST = [
     "jobs", "education", "travel", "finance", "ecommerce", "tech", "news",
     "media", "social", "forum", "health", "real_estate", "gaming", "sports",
@@ -119,3 +121,33 @@ Input domain: "tech-hardwarehub.com"
 
 Now classify the domain: {domain}
 """
+
+def generate_jobs_email_prompt(domain: str, subcategory: Optional[str] = None) -> str:
+    base = f"""
+You are writing a realistic, human-like email from a jobs-related sender at {domain} (e.g., recruiter, hiring manager, job board representative, HR department).
+The sender should have an email address like firstname@{domain} or similar, and the content should reflect {domain}'s focus on recruitment."""
+    
+    if subcategory:
+        base += f"\n\n{domain} specializes in {subcategory} recruitment. Make sure the job roles and content reflect this specialization."
+    
+    base += """
+
+Write a single, high-quality legitimate email related to job recruitment. Include both subject line and email body. Randomly choose a type of message, such as:
+- a job offer  
+- an interview invitation  
+- a follow-up on an application  
+- a job alert from a job board  
+- a job search tips newsletter  
+- a rejection email  
+- an update about a new position opening
+
+**Guidelines:**
+- Vary the structure, length, and tone — formal or slightly conversational is fine.
+- Use specific job roles, locations, or company names (you can make them up).
+- Make the domain feel natural in the context (e.g., reference the company name in a way that matches the domain).
+- Ensure the sender sounds human and trustworthy.
+- DO NOT include any spammy language or suspicious elements.
+
+Respond with **only** the full email (subject line + body). Do not include any metadata or explanation."""
+    
+    return base.strip()
