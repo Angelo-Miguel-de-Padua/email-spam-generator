@@ -11,6 +11,7 @@ from email_generator.database.supabase_client import db
 from email_generator.utils.prompt_template import label_domain_prompt, fallback_label_domain_prompt
 from email_generator.utils.domain_utils import normalize_domain
 from email_generator.utils.text_filters import useless_text
+from email_generator.utils.qwen_utils import initialize_session, close_session, call_qwen
 
 logger = logging.getLogger(__name__)
 
@@ -39,66 +40,13 @@ class ClassificationResult:
             **({"classifier_error": self.classifier_error} if self.classifier_error else {})
         }
 
-OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME")
-OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT")
-
-session = None
-session_lock = asyncio.Lock()
-
-async def initialize_session():
-    global session
-    async with session_lock:
-        if session is None:
-            session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=60),
-                connector=aiohttp.TCPConnector(limit=100)
-            )
-
-async def close_session():
-    global session
-    if session:
-        logger.info("Closing HTTP Session")
-        await session.close()
-        session = None
-
-async def call_qwen(prompt: str, retries: int = 2) -> str:
-    global session
-    if session is None:
-        await initialize_session()
-
-    for attempt in range(retries + 1):
-        try:
-            async with session.post(
-                OLLAMA_ENDPOINT,
-                json={
-                    "model": OLLAMA_MODEL_NAME,
-                    "prompt": prompt,
-                    "stream": False
-                }
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data["response"]
-                else:
-                    error_text = await response.text()
-                    logger.warning(f"Qwen API returned status {response.status}: {error_text}")
-                    raise Exception (f"Status {response.status}: {error_text}")
-        except Exception as e:
-            if attempt == retries:
-                logger.error(f"Qwen failed after {retries + 1} tries: {e}")
-                raise Exception(f"Qwen failed after {retries + 1} tries: {e}")
-            logger.warning(f"Qwen attempt {attempt + 1} failed: {e}, retrying...")
-            await asyncio.sleep(0.5)
-
 async def ask_qwen(text: str, domain: str) -> dict:
-    prompt = (
-        label_domain_prompt(text, domain)
-    )
-
-    response = await call_qwen(prompt)
+    prompt = label_domain_prompt(text, domain)
 
     try:
+        response = await call_qwen(prompt)
         result = json.loads(response)
+        
         if not all(key in result for key in ["category", "subcategory", "confidence", "explanation"]):
             raise ValueError("Missing expected fields in Qwen response")
         return result
@@ -148,7 +96,6 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
     domain = normalize_domain(domain)
     logger.info(f"Starting classification for domain: {domain}")
 
-    # Skip if already labeled (unless forcing)
     if not force and is_domain_labeled(domain):
         logger.info(f"Domain {domain} is already labeled, skipping")
         return ClassificationResult(
@@ -157,7 +104,6 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
             classifier_error="Already labeled"
         )
 
-    # Get scraped content from DB
     result = get_scraped_data(domain)
     if result is None:
         logger.warning(f"Domain {domain} not found in scraped data")
@@ -180,7 +126,6 @@ async def label_domain(domain: str, force: bool = False) -> ClassificationResult
     scrape_error = result.get("scrape_error")
     scraped_text = result.get("scraped_text", "")
 
-    # Decide whether to use fallback or normal classification
     if scrape_error is not None or "Both protocols failed" in scraped_text or useless_text(scraped_text):
         classification = await classify_domain_fallback(domain)
         source = "qwen-fallback"
@@ -285,7 +230,7 @@ async def retry_failed_classifications(limit: int = 1000, batch_size: int = 20, 
         domain_names,
         batch_size=batch_size,
         max_concurrent=max_concurrent,
-        force=True  # Force reclassification
+        force=True 
     )
 
 async def retry_low_confidence_classifications(
