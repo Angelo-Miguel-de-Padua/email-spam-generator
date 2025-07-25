@@ -1,11 +1,13 @@
-import asyncio
 import logging
+import signal
+import asyncio
 import sys
-from email_generator.classifier.qwen_classifier.qwen_scraper import WebScraper
 from email_generator.database.supabase_client import db
-from email_generator.classifier.qwen_classifier.interfaces import DefaultValidator, DefaultRateLimiter
-from email_generator.utils.load_tranco import load_tranco_domains
-from email_generator.classifier.qwen_classifier.qwen_labeler import label_domain
+from email_generator.classifier.qwen_classifier.qwen_labeler import (
+    retry_failed_classifications,
+    get_classification_stats,
+    close_session
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,33 +18,69 @@ logging.basicConfig(
     ]
 )
 
-validator = DefaultValidator()
-rate_limiter = DefaultRateLimiter()
-scraper = WebScraper(
-    storage=db,
-    validator=validator,
-    rate_limiter=rate_limiter
-)
+MAX_DOMAINS = 10000
+BATCH_SIZE = 10
+MAX_CONCURRENT = 3
 
-SCRAPE_LIMIT = 500
+stop_event = asyncio.Event()
 
-async def scrape_and_extract(domain: str):
-    await scraper.scrape_domain(domain)
+async def handle_shutdown():
+    logging.warning("Shutdown signal received. Stopping gracefully...")
+    stop_event.set()
+
+def signal_handler(signum, frame):
+    asyncio.create_task(handle_shutdown())
 
 async def main():
-    domains = load_tranco_domains("resources/top-1m.csv", limit=SCRAPE_LIMIT)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
-    for i, domain in enumerate(domains, 1):
-        print(f"[{i}/{SCRAPE_LIMIT}] Processing: {domain}")
-        
-        await scrape_and_extract(domain)  
-        await label_domain(domain)
+    try:
+        logging.info("Retrying classification only for previously failed domains...")
 
-    await scraper.close()  
+        # Run the existing retry pipeline
+        stats_before = get_classification_stats()
+        logging.info(f"Initial classification stats: {stats_before}")
+
+        results = await retry_failed_classifications(
+            limit=MAX_DOMAINS,
+            batch_size=BATCH_SIZE,
+            max_concurrent=MAX_CONCURRENT
+        )
+
+        if not results:
+            logging.info("No failed domains to retry.")
+            return
+
+        # Count successes vs errors
+        success_count = sum(1 for r in results if r.category != "error")
+        error_count = len(results) - success_count
+        logging.info(f"Retry completed: {success_count} successful, {error_count} errors")
+
+        # Category breakdown
+        category_counts = {}
+        for r in results:
+            if r.category != "error":
+                category_counts[r.category] = category_counts.get(r.category, 0) + 1
+        if category_counts:
+            logging.info("Category breakdown:")
+            for category, count in sorted(category_counts.items()):
+                logging.info(f"  {category}: {count}")
+
+        stats_after = get_classification_stats()
+        logging.info(f"Final classification stats: {stats_after}")
+        logging.info("Failed domain retry pipeline completed successfully")
+
+    except KeyboardInterrupt:
+        logging.info("Process interrupted by user")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+    finally:
+        await close_session()
+        logging.info("Cleanup completed")
 
 if __name__ == "__main__":
-    import sys
-    if sys.platform.startswith("win"):
+    if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
+    
     asyncio.run(main())

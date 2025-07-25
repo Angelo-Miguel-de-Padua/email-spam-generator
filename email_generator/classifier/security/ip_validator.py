@@ -47,7 +47,6 @@ class CloudMetadataUpdater:
         try:
             with open(self.cache_file, 'w') as f:
                 json.dump(combined_cache, f, indent=2)
-            logger.info(f"Using fallback cloud metadata IPs: {len(fallback_cloud_metadata_ips)}")
         except Exception as e:
             logger.warning(f"Failed to write cache file: {e}")
 

@@ -72,6 +72,29 @@ class SupabaseClient:
         
         return has_category
     
+    def get_scraped_domains_from_list(self, domains: List[str], batch_size: int = 500) -> Set[str]:
+        if not domains:
+            return set()
+        
+        scraped_domains = set()
+        
+        for i in range(0, len(domains), batch_size):
+            batch = domains[i:i + batch_size]
+
+            result = self._safe_execute(
+                self.client.table("domain_labels")
+                .select("domain")
+                .in_("domain", domains)
+                .not_.is_("scraped_text", None),
+                "Error getting scraped domains from list"
+            )
+
+            if result:
+                batch_scraped = {row["domain"] for row in result}
+                scraped_domains.update(batch_scraped)
+
+            return {row["domain"] for row in result} if result else set()
+    
     def get_domain_data(self, domain: str) -> Optional[Dict[str, Any]]:
         result = self._safe_execute(
                 self.client.table("domain_labels").select("*").eq("domain", domain),
@@ -109,11 +132,12 @@ class SupabaseClient:
             confidence: int = 0, 
             explanation: str = None,
             source: str = None, 
-            text: str = None, 
-            error: str = None
+            scraped_text: str = None, 
+            scrape_error: str = None,
+            classifier_error: str = None
         ) -> bool:
         
-        flagged = bool(error)
+        flagged = bool(classifier_error or scrape_error)
 
         data = {
             "domain": domain,
@@ -123,16 +147,19 @@ class SupabaseClient:
             "flagged_for_review": flagged
         }
 
+        # Optional fields to include if present
         data.update({k: v for k, v in {
             "subcategory": subcategory,
             "explanation": explanation,
             "source": source,
-            "text": text,
-            "error": error
+            "scraped_text": scraped_text,
+            "scrape_error": scrape_error,
+            "classifier_error": classifier_error
         }.items() if v is not None})
 
-        if error:
-            logger.warning(f"Storing classification for {domain} with error: {error}")
+        if classifier_error or scrape_error:
+            logger.warning(f"Storing classification for {domain} with error(s): "
+                        f"{classifier_error or ''} {scrape_error or ''}".strip())
         
         result = self._safe_execute(
             self.client.table("domain_labels").upsert(data),
@@ -311,4 +338,71 @@ class SupabaseClient:
         
         return self.preload_domains(domains, batch_size, created_at)
     
+    def retry_failed_domains(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        result = self._safe_execute(
+            self.client.table("domain_labels")
+            .select("*")
+            .or_(
+                "explanation.ilike.%Fallback failed:%,"
+                "explanation.ilike.%Failed to parse json%"
+            )
+            .order("last_classified", desc=True)
+            .limit(limit),
+            "Error getting failed domains"
+        )
+        return result or []
+
+    
+    def get_low_confidence_domains(self, limit: int = 500) -> List[Dict[str, Any]]:
+        result = self._safe_execute(
+            self.client.table("domain_labels")
+            .select("*")
+            .not_.is_("scraped_text", None)
+            .lte("confidence", 7)
+            .not_.in_("category", ["unknown", "error"])
+            .order("last_classified", desc=True)
+            .limit(limit),
+            "Error getting low-confidence domains"
+        )
+        return result or []
+    
+    def export_classified_domains(self, output_file: str = "classified_domains.csv", batch_size: int = 1000) -> None:
+        """
+        Export all classified domains (domain, category, confidence, explanation) to a CSV file.
+        """
+        offset = 0
+        total_exported = 0
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            # Write CSV header
+            f.write("domain,category,confidence,explanation\n")
+
+            while True:
+                result = self._safe_execute(
+                    self.client.table("domain_labels")
+                    .select("domain, category, confidence, explanation")
+                    .not_.is_("category", None)
+                    .range(offset, offset + batch_size - 1),
+                    f"Error exporting classified domains (offset {offset})"
+                )
+
+                if not result:
+                    break
+
+                for row in result:
+                    domain = row["domain"]
+                    category = row.get("category", "")
+                    confidence = row.get("confidence", 0)
+                    explanation = row.get("explanation", "").replace("\n", " ").replace(",", ";")  # Clean CSV
+                    f.write(f"{domain},{category},{confidence},{explanation}\n")
+                    total_exported += 1
+
+                if len(result) < batch_size:
+                    break  # Reached the end
+                offset += batch_size
+
+        logger.info(f"Exported {total_exported} classified domains to {output_file}")
+
+    
 db = SupabaseClient()
+
